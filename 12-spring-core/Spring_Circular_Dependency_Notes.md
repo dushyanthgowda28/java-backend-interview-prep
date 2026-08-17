@@ -1,11 +1,9 @@
-# Circular Dependency in Spring
+# Spring Circular Dependency --- Detailed Interview Notes
 
 ## 1. Definition
 
-A **circular dependency** occurs when two or more Spring beans depend on
-each other directly or indirectly.
-
-### Direct circular dependency
+A **circular dependency** occurs when Spring Bean A depends on Bean B,
+while Bean B depends directly or indirectly on Bean A.
 
 ``` text
 A → B
@@ -13,72 +11,39 @@ A → B
 └───┘
 ```
 
-Example:
-
-``` java
-@Service
-public class A {
-
-    private final B b;
-
-    public A(B b) {
-        this.b = b;
-    }
-}
-```
-
-``` java
-@Service
-public class B {
-
-    private final A a;
-
-    public B(A a) {
-        this.a = a;
-    }
-}
-```
-
-Here:
+A cycle can contain two beans or many beans.
 
 ``` text
-A depends on B
-B depends on A
+A → B → C → A
 ```
+
+### Key point
+
+> Circular dependency is a dependency-graph problem. Spring encounters
+> it while trying to create and initialize the beans.
 
 ------------------------------------------------------------------------
 
-# 2. What Causes Circular Dependency?
-
-Circular dependency is usually caused by **tightly coupled components or
-poor separation of responsibilities**.
+# 2. Why Circular Dependency Happens
 
 Common causes:
 
-1.  Direct mutual dependency
-2.  Indirect dependency between multiple beans
-3.  Poor separation of responsibilities
-4.  Bidirectional service dependencies
-5.  Services calling each other in both directions
-6.  One service doing too many responsibilities
-
-The important point is:
-
-> Circular dependency is usually a design problem. Spring encounters the
-> cycle while creating the beans.
+1.  Two services directly depend on each other.
+2.  Multiple services form an indirect cycle.
+3.  Responsibilities are not properly separated.
+4.  A service performs too many business responsibilities.
+5.  Bidirectional service-to-service communication is used
+    unnecessarily.
+6.  A lower-level component depends on a higher-level component.
+7.  Event/listener or callback design creates a reverse dependency.
+8.  AOP/proxy-based dependencies make an existing cycle harder to
+    resolve.
 
 ------------------------------------------------------------------------
 
 # 3. Direct Circular Dependency
 
-The simplest case is:
-
-``` text
-A → B
-B → A
-```
-
-Example:
+## Example
 
 ``` java
 @Service
@@ -108,59 +73,51 @@ Dependency graph:
 
 ``` text
 OrderService
-      ↓
+     ↓
 PaymentService
-      ↓
+     ↓
 OrderService
-      ↑
-     CYCLE
 ```
+
+This is a direct cycle.
 
 ------------------------------------------------------------------------
 
 # 4. Indirect Circular Dependency
 
-A circular dependency can involve more than two beans.
+The cycle can contain several beans.
 
-Example:
+``` java
+@Service
+public class OrderService {
+    public OrderService(PaymentService paymentService) {}
+}
+```
+
+``` java
+@Service
+public class PaymentService {
+    public PaymentService(NotificationService notificationService) {}
+}
+```
+
+``` java
+@Service
+public class NotificationService {
+    public NotificationService(OrderService orderService) {}
+}
+```
+
+Graph:
 
 ``` text
-A → B
-B → C
-C → A
-```
-
-``` java
-@Service
-public class A {
-    public A(B b) {}
-}
-```
-
-``` java
-@Service
-public class B {
-    public B(C c) {}
-}
-```
-
-``` java
-@Service
-public class C {
-    public C(A a) {}
-}
-```
-
-Dependency graph:
-
-``` text
-A
-↓
-B
-↓
-C
-↓
-A
+OrderService
+     ↓
+PaymentService
+     ↓
+NotificationService
+     ↓
+OrderService
 ```
 
 This is an **indirect circular dependency**.
@@ -169,10 +126,8 @@ This is an **indirect circular dependency**.
 
 # 5. Constructor Circular Dependency
 
-A constructor circular dependency occurs when dependencies are required
+Constructor circular dependency occurs when dependencies are required
 through constructors.
-
-Example:
 
 ``` java
 @Service
@@ -198,132 +153,131 @@ public class B {
 }
 ```
 
-Dependency:
+Graph:
 
 ``` text
 A → B → A
 ```
 
-## How Spring processes it
+## Creation sequence
 
-Suppose Spring starts creating `A`.
-
-### Step 1: Create A
-
-Spring sees:
-
-``` java
-A(B b)
-```
-
-Therefore, `B` is required before `A` can be instantiated.
+Spring starts with `A`.
 
 ``` text
-Creating A
-    ↓
-Need B
+Create A
+  ↓
+A requires B
+  ↓
+Create B
+  ↓
+B requires A
+  ↓
+A is already being created
+  ↓
+Cycle
 ```
 
-### Step 2: Create B
-
-Spring starts creating `B`.
-
-``` java
-B(A a)
-```
-
-Therefore, `A` is required.
-
-``` text
-Creating A
-    ↓
-Creating B
-    ↓
-Need A
-```
-
-### Step 3: A is already being created
-
-Spring needs `A`, but `A` cannot finish because it is waiting for `B`.
-
-``` text
-A
-↓
-B
-↓
-A
-↓
-B
-...
-```
-
-The cycle cannot be resolved.
-
-Typically, Spring fails with an error involving:
-
-``` text
-BeanCurrentlyInCreationException
-```
-
-or Spring Boot reports that the dependencies form a cycle.
+Neither constructor can finish.
 
 ------------------------------------------------------------------------
 
-# 6. Why Constructor Circular Dependency Cannot Normally Be Resolved
+# 6. Why Constructor Circular Dependency Fails
 
-Constructor injection requires the dependency **before the object can be
-instantiated**.
-
-For:
+Consider:
 
 ``` java
 A(B b)
 ```
 
-Spring effectively needs:
+Spring cannot instantiate `A` until `B` exists.
 
-``` text
-B must exist
-    ↓
-before A can be created
-```
-
-For:
+Now:
 
 ``` java
 B(A a)
 ```
 
-Spring needs:
-
-``` text
-A must exist
-    ↓
-before B can be created
-```
+Spring cannot instantiate `B` until `A` exists.
 
 Therefore:
 
 ``` text
-A requires B to construct
-B requires A to construct
+A needs B before A can exist
+B needs A before B can exist
 ```
 
-There is no completed object that Spring can provide to either
-constructor.
+There is no safe starting point.
 
-### Key point
+### Important interview statement
 
-> Constructor injection exposes circular dependencies because the object
-> cannot be instantiated until its constructor dependencies are
-> available.
+> Constructor injection makes circular dependencies fail early because
+> the required dependency must exist before the constructor can execute.
 
 ------------------------------------------------------------------------
 
-# 7. Setter Circular Dependency
+# 7. Constructor Circular Dependency --- Three Beans
 
-A setter circular dependency occurs when two beans depend on each other
-through setter injection.
+``` java
+@Service
+class A {
+    A(B b) {}
+}
+```
+
+``` java
+@Service
+class B {
+    B(C c) {}
+}
+```
+
+``` java
+@Service
+class C {
+    C(A a) {}
+}
+```
+
+Graph:
+
+``` text
+A
+↓
+B
+↓
+C
+↓
+A
+```
+
+Creation:
+
+``` text
+Create A
+  ↓
+Need B
+  ↓
+Create B
+  ↓
+Need C
+  ↓
+Create C
+  ↓
+Need A
+  ↓
+A is already in creation
+  ↓
+FAIL
+```
+
+------------------------------------------------------------------------
+
+# 8. Setter Circular Dependency
+
+Setter injection separates:
+
+1.  Object instantiation
+2.  Dependency injection
 
 Example:
 
@@ -353,37 +307,63 @@ public class B {
 }
 ```
 
-Dependency:
-
-``` text
-A → B
-↑   ↓
-└───┘
-```
-
-Unlike constructor injection, Spring can instantiate the objects without
-immediately having their dependencies.
-
 Conceptually:
 
 ``` text
 Create A
    ↓
+A exists
+   ↓
 Create B
+   ↓
+B exists
    ↓
 Inject A into B
    ↓
 Inject B into A
-   ↓
-Complete initialization
 ```
 
-Therefore, Spring can resolve **certain circular dependencies involving
-singleton beans and setter/field injection**.
+Spring can resolve **certain singleton setter-based circular
+dependencies**.
 
 ------------------------------------------------------------------------
 
-# 8. Field Injection Circular Dependency
+# 9. Why Setter Injection Can Be Different
+
+Constructor:
+
+``` java
+A(B b)
+```
+
+Object creation requires `B`.
+
+Setter:
+
+``` java
+A()
+setB(B)
+```
+
+Object creation does not require `B`.
+
+Spring can first create:
+
+``` java
+new A()
+```
+
+and later perform:
+
+``` java
+a.setB(b);
+```
+
+This difference is the reason certain setter cycles can be handled.
+
+------------------------------------------------------------------------
+
+# 10. Field Injection Circular Dependency
 
 Example:
 
@@ -405,33 +385,35 @@ public class B {
 }
 ```
 
-Dependency:
+Conceptually:
 
 ``` text
-A ↔ B
+Instantiate A
+    ↓
+Instantiate B
+    ↓
+Inject A into B
+    ↓
+Inject B into A
 ```
 
-Because the objects can be instantiated before the fields are injected,
-Spring can resolve some singleton cycles using its early-reference
-mechanism.
+Certain singleton cycles can be resolved.
 
-However:
+### But do not use field injection just to solve cycles.
 
-> Field injection is not recommended just to solve circular
-> dependencies.
-
-Constructor injection is generally preferred because dependencies are
-explicit and objects can be created in a valid state.
+Constructor injection is generally preferred.
 
 ------------------------------------------------------------------------
 
-# 9. Early Singleton Exposure
+# 11. Early Singleton Exposure
 
-**Early singleton exposure** means Spring makes an early reference to a
-singleton bean available while that bean is still being created.
+## Definition
 
-It is important for understanding how Spring can resolve certain
-setter/field circular dependencies.
+**Early singleton exposure** means Spring can make an early reference to
+a singleton bean available while that bean is still being created.
+
+It is mainly relevant to circular dependencies involving singleton
+beans.
 
 Example:
 
@@ -441,85 +423,73 @@ A → B
 └───┘
 ```
 
-Conceptually:
+Conceptual flow:
 
 ``` text
-Create A
-   ↓
-A object exists
-   ↓
-Expose an early reference to A
-   ↓
+Start creating A
+       ↓
+Instantiate A
+       ↓
+Register possibility of an early A reference
+       ↓
 Create B
-   ↓
-B needs A
-   ↓
-Use early reference to A
-   ↓
-Finish B
-   ↓
+       ↓
+B requires A
+       ↓
+Obtain early A reference
+       ↓
+Inject A into B
+       ↓
+Complete B
+       ↓
 Inject B into A
-   ↓
-Finish A
+       ↓
+Complete A
 ```
-
-Important:
-
-> Early exposure does NOT mean that A is fully initialized.
-
-It means that an appropriate reference to the bean can be made available
-before complete initialization.
 
 ------------------------------------------------------------------------
 
-# 10. Why Early Exposure Is Possible for Setter/Field Injection
+# 12. Early Reference Is Not a Fully Initialized Bean
 
-With setter injection:
+This distinction is important.
 
-``` java
-A(B b)
+An early reference means:
+
+``` text
+Object exists
+but
+complete Spring initialization has not necessarily finished
 ```
 
-is NOT used.
+A fully initialized bean means the relevant creation and initialization
+stages have completed.
 
-Instead:
+Therefore:
 
-``` java
-A()
-setB(B)
+``` text
+Early reference != Fully initialized bean
 ```
-
-The object can therefore be created first:
-
-``` java
-new A()
-```
-
-After the object exists, Spring can inject `B`.
-
-That gives Spring an opportunity to expose an early reference to `A`.
-
-With constructor injection:
-
-``` java
-new A(B)
-```
-
-Spring cannot create `A` without `B`.
-
-Therefore there is no instantiated `A` to expose early.
 
 ------------------------------------------------------------------------
 
-# 11. Spring's Three-Level Singleton Cache
+# 13. Spring Singleton Caches
 
-Spring's `DefaultSingletonBeanRegistry` uses three important levels of
-singleton storage when handling singleton creation and circular
-dependencies.
+Spring's singleton registry has three important levels commonly
+discussed when explaining circular dependency handling.
 
-## 11.1 `singletonObjects`
+``` text
+1. singletonObjects
+2. earlySingletonObjects
+3. singletonFactories
+```
 
-Contains fully initialized singleton beans.
+------------------------------------------------------------------------
+
+# 14. `singletonObjects`
+
+This is the main singleton cache.
+
+It contains fully initialized singleton instances.
 
 Conceptually:
 
@@ -530,192 +500,194 @@ A → fully initialized A
 B → fully initialized B
 ```
 
-This is commonly referred to as the **first-level cache**.
+Often called the **first-level cache**.
 
 ------------------------------------------------------------------------
 
-## 11.2 `earlySingletonObjects`
+# 15. `earlySingletonObjects`
 
-Contains early references to singleton beans that are currently being
-created.
+Contains early singleton references.
 
 Conceptually:
 
 ``` text
 earlySingletonObjects
 
-A → early A reference
+A → early reference to A
 ```
 
-This is commonly referred to as the **second-level cache**.
+Often called the **second-level cache**.
+
+It is used when a bean is currently being created and another bean needs
+an early reference to it.
 
 ------------------------------------------------------------------------
 
-## 11.3 `singletonFactories`
+# 16. `singletonFactories`
 
-Contains `ObjectFactory` instances that can provide an early reference.
+Contains factories that can create/provide an early reference.
 
 Conceptually:
 
 ``` text
 singletonFactories
 
-A → ObjectFactory<A>
+A → ObjectFactory
 ```
 
-This is commonly referred to as the **third-level cache**.
+Often called the **third-level cache**.
 
-It is particularly important when Spring needs to obtain an appropriate
-early reference, including cases involving proxies.
+The factory is especially important when Spring may need to expose an
+appropriate reference such as a proxy.
 
 ------------------------------------------------------------------------
 
-# 12. Why Does Spring Use `singletonFactories`?
+# 17. Why Three Levels?
 
-Suppose a bean is subject to AOP.
+The simplified idea is:
 
-Example:
+``` text
+Fully initialized bean
+        ↓
+singletonObjects
+```
+
+If a bean is being created:
+
+``` text
+Early reference
+        ↓
+earlySingletonObjects
+```
+
+If Spring needs to generate an early reference:
+
+``` text
+ObjectFactory
+        ↓
+singletonFactories
+```
+
+The third level gives Spring an opportunity to obtain the appropriate
+early reference instead of blindly exposing the raw object.
+
+------------------------------------------------------------------------
+
+# 18. AOP and Early References
+
+Suppose:
 
 ``` java
 @Service
 @Transactional
 public class PaymentService {
+
+    public void pay() {
+    }
 }
 ```
 
-The object used by other beans may be a proxy:
+Spring may create:
 
 ``` text
 PaymentService target
-       ↓
-   Spring proxy
-       ↓
-Other bean
+        ↓
+Spring proxy
+        ↓
+Other beans interact with proxy
 ```
 
-Spring may therefore need to expose the **appropriate early reference**,
-potentially the proxy, rather than simply exposing the raw object.
+During circular dependency resolution, Spring may need to expose the
+appropriate proxy/reference.
 
-The third-level cache provides a factory that can create the early
-reference when required.
+This is one reason `singletonFactories` matters.
+
+### Important
+
+Do not oversimplify the mechanism as:
+
+> "Spring simply puts the raw object into a cache."
+
+Spring's actual bean creation process also considers post-processors and
+proxies.
 
 ------------------------------------------------------------------------
 
-# 13. Simplified Early-Exposure Flow
+# 19. Simplified Internal Flow
 
 For:
 
 ``` text
-A → B
-B → A
+A → B → A
 ```
 
-the simplified flow is:
+a simplified conceptual sequence is:
 
 ``` text
 1. Start creating A
-        ↓
 2. Instantiate A
-        ↓
-3. Register an ObjectFactory for an early A reference
-        ↓
+3. Register an early-reference factory for A
 4. Populate A's dependencies
-        ↓
-5. A needs B
-        ↓
+5. A requires B
 6. Start creating B
-        ↓
-7. B needs A
-        ↓
-8. Obtain early A reference
-        ↓
+7. B requires A
+8. Find A's early reference
 9. Inject A into B
-        ↓
-10. Finish B
-        ↓
+10. Complete B
 11. Inject B into A
-        ↓
-12. Initialize A
-        ↓
-13. Store fully initialized A in singletonObjects
+12. Complete initialization of A
+13. Store final A in singletonObjects
 ```
 
-This is a **simplified conceptual flow** of Spring's internal bean
-creation process.
+This is a conceptual explanation, not a literal line-by-line
+implementation of every Spring version.
 
 ------------------------------------------------------------------------
 
-# 14. Important: Early Reference vs Fully Initialized Bean
+# 20. Why Constructor Injection Cannot Use Early Singleton Exposure in the Same Way
 
-These are different.
-
-### Fully initialized bean
-
-``` text
-Instantiate
-   ↓
-Populate properties
-   ↓
-BeanPostProcessor processing
-   ↓
-Initialization callbacks
-   ↓
-Fully initialized bean
-```
-
-### Early reference
-
-``` text
-Instantiate
-   ↓
-Early reference available
-   ↓
-Bean is still being initialized
-```
-
-Therefore:
-
-> An early reference can point to an object that has not completed its
-> complete Spring lifecycle yet.
-
-------------------------------------------------------------------------
-
-# 15. AOP / Proxy and Circular Dependencies
-
-Circular dependencies become more complicated when Spring AOP is
-involved.
-
-For example:
+Constructor injection:
 
 ``` java
-@Service
-@Transactional
-public class A {
-}
+A(B b)
 ```
 
-Spring may manage:
+requires `B` before `A` can be instantiated.
+
+So:
 
 ``` text
-A target
-   ↑
-   |
-Proxy
+A object does not yet exist
+       ↓
+Cannot provide an already-created A object
+       ↓
+Constructor cycle fails
 ```
 
-Another bean generally interacts with the Spring-managed proxy rather
-than directly with the target object.
+Setter injection:
 
-Therefore, when exposing an early reference, Spring may need to expose
-the appropriate proxy/reference.
+``` java
+A()
+setB(B)
+```
 
-This is one reason the third-level singleton factory is important.
+allows:
+
+``` text
+A object exists
+       ↓
+Early reference may be exposed
+       ↓
+B can obtain A
+```
+
+This is the core difference.
 
 ------------------------------------------------------------------------
 
-# 16. `@Lazy` and Circular Dependency
+# 21. `@Lazy`
 
-`@Lazy` can sometimes break an immediate circular dependency.
+`@Lazy` can sometimes break the immediate creation cycle.
 
 Example:
 
@@ -736,33 +708,22 @@ Conceptually:
 ``` text
 A
  ↓
-B proxy
+B proxy/reference
  ↓
 Actual B created later
 ```
 
-Spring can inject a lazy reference/proxy instead of immediately
-requiring the actual `B` instance.
+Spring can defer creation of `B`.
 
-### Important
+### When to use
 
-`@Lazy` can be useful, but it should not normally be the first solution.
+Use `@Lazy` when lazy creation is genuinely appropriate.
 
-Prefer:
-
-``` text
-Identify cycle
-     ↓
-Understand why it exists
-     ↓
-Redesign dependency
-     ↓
-Remove cycle
-```
+Do not use it automatically to hide a design problem.
 
 ------------------------------------------------------------------------
 
-# 17. `spring.main.allow-circular-references`
+# 22. `spring.main.allow-circular-references`
 
 Spring Boot provides:
 
@@ -770,28 +731,30 @@ Spring Boot provides:
 spring.main.allow-circular-references=true
 ```
 
-This controls whether circular references are allowed by the application
-context.
+This setting controls whether circular references are allowed.
 
-However, enabling this should not be treated as the preferred
-architectural solution.
+However:
 
-Do not use:
+> Enabling circular references should not be the default architectural
+> solution.
 
-``` properties
-spring.main.allow-circular-references=true
+Better:
+
+``` text
+Find cycle
+   ↓
+Understand why it exists
+   ↓
+Redesign
+   ↓
+Remove cycle
 ```
-
-simply to hide a poorly designed dependency graph.
-
-Prefer removing the cycle.
 
 ------------------------------------------------------------------------
 
-# 18. Prototype Scope and Circular Dependency
+# 23. Prototype Beans
 
-Circular dependency handling is mainly associated with **singleton
-beans**.
+Early singleton exposure is specifically about **singleton beans**.
 
 Prototype beans have different lifecycle semantics.
 
@@ -800,221 +763,184 @@ Example:
 ``` java
 @Component
 @Scope("prototype")
-public class A {
-    public A(B b) {}
+class A {
+    A(B b) {}
 }
 ```
 
 ``` java
 @Component
 @Scope("prototype")
-public class B {
-    public B(A a) {}
+class B {
+    B(A a) {}
 }
 ```
 
-Spring cannot rely on the same singleton early-reference mechanism for
+The singleton early-reference mechanism cannot simply be applied to
 prototype instances.
 
-Therefore, prototype circular dependencies generally fail.
-
-### Key point
-
-> Early singleton exposure is specifically a singleton-bean mechanism.
-> Do not assume it applies to prototype beans.
+Therefore prototype circular dependencies generally fail.
 
 ------------------------------------------------------------------------
 
-# 19. Circular Dependency in Real Applications
+# 24. Real-World Example --- Order and Payment
 
-A common example:
-
-``` text
-OrderService
-      ↓
-PaymentService
-      ↓
-OrderService
-```
-
-This may happen because both services contain responsibilities that
-should have been separated.
-
-A better design could be:
+Bad design:
 
 ``` text
 OrderService
-      ↓
+     ↕
 PaymentService
 ```
 
-Or use an event:
+Example:
+
+``` java
+@Service
+public class OrderService {
+
+    private final PaymentService paymentService;
+
+    public OrderService(PaymentService paymentService) {
+        this.paymentService = paymentService;
+    }
+}
+```
+
+``` java
+@Service
+public class PaymentService {
+
+    private final OrderService orderService;
+
+    public PaymentService(OrderService orderService) {
+        this.orderService = orderService;
+    }
+}
+```
+
+Ask:
+
+> Why does PaymentService need OrderService?
+
+Maybe PaymentService only needs the order ID or order details.
+
+Instead of depending on the entire service:
 
 ``` text
-OrderService
-      ↓
-OrderCreatedEvent
-      ↓
 PaymentService
-```
-
-Another example:
-
-``` text
-PaymentService
       ↓
-PaymentCompletedEvent
-      ↓
-OrderEventHandler
+OrderRepository
 ```
 
-This creates a more one-directional dependency structure.
+or pass the required data:
 
-------------------------------------------------------------------------
-
-# 20. How to Fix Circular Dependency
-
-## Solution 1: Redesign the dependency
-
-Best solution:
-
-``` text
-A ↔ B
-```
-
-becomes:
-
-``` text
-A → B
-```
-
-or:
-
-``` text
-A → CommonService ← B
+``` java
+paymentService.pay(orderId);
 ```
 
 ------------------------------------------------------------------------
 
-## Solution 2: Extract common responsibility
+# 25. Real-World Example --- Event-Based Design
 
 Instead of:
 
 ``` text
-A ↔ B
-```
-
-extract shared functionality:
-
-``` text
-       CommonService
-        ↙         ↘
-       A           B
-```
-
-This reduces coupling.
-
-------------------------------------------------------------------------
-
-## Solution 3: Use an event
-
-Instead of:
-
-``` text
-A → B
-B → A
+OrderService → PaymentService
+PaymentService → OrderService
 ```
 
 use:
 
 ``` text
-A
-↓
-Event
-↓
-B
-```
-
-For example:
-
-``` text
 OrderService
-      ↓
+     ↓
 OrderCreatedEvent
-      ↓
+     ↓
 PaymentService
 ```
 
-------------------------------------------------------------------------
+Or:
 
-## Solution 4: Use `@Lazy` when appropriate
-
-``` java
-public A(@Lazy B b) {
-    this.b = b;
-}
+``` text
+PaymentService
+     ↓
+PaymentCompletedEvent
+     ↓
+OrderEventHandler
 ```
 
-This can defer creation of the dependency.
-
-Use it carefully.
+This can remove the direct reverse dependency.
 
 ------------------------------------------------------------------------
 
-## Solution 5: Setter injection
+# 26. Real-World Example --- Extract Common Service
 
-Setter injection can allow some singleton cycles to be resolved:
+Bad:
 
-``` java
-@Autowired
-public void setB(B b) {
-    this.b = b;
-}
+``` text
+A ↔ B
 ```
 
-But changing constructor injection to setter injection **only to make
-the cycle work** is usually not the best design.
+Suppose both require the same validation logic.
+
+Extract it:
+
+``` text
+        ValidationService
+          ↙          ↘
+         A            B
+```
+
+Now:
+
+``` text
+A → ValidationService
+B → ValidationService
+```
+
+No cycle.
 
 ------------------------------------------------------------------------
 
-# 21. Constructor vs Setter vs Field
+# 27. Real-World Example --- Too Many Responsibilities
 
-  Injection type   Circular dependency
-  ---------------- -----------------------------------------
-  Constructor      Generally cannot be resolved
-  Setter           Some singleton cycles can be resolved
-  Field            Some singleton cycles can be resolved
-  `@Lazy`          Can sometimes break the immediate cycle
-  Redesign         Preferred solution
+Bad:
+
+``` text
+OrderService
+- order creation
+- payment handling
+- notification
+- inventory
+```
+
+Then:
+
+``` text
+PaymentService → OrderService
+NotificationService → OrderService
+InventoryService → OrderService
+```
+
+The service has become a central dependency.
+
+Better:
+
+``` text
+OrderService
+PaymentService
+NotificationService
+InventoryService
+```
+
+with clearly defined responsibilities and one-way dependencies/events.
 
 ------------------------------------------------------------------------
 
-# 22. Why Constructor Injection Is Still Preferred
+# 28. How to Find the Cycle
 
-Constructor injection provides several advantages:
-
--   Dependencies are explicit
--   Dependencies can be `final`
--   Object can be created in a valid state
--   Easier to test
--   Prevents partially initialized objects
--   Exposes circular dependencies early
-
-Therefore:
-
-> The fact that setter injection can sometimes resolve circular
-> dependencies is not a reason to prefer setter injection.
-
-A circular dependency is often a signal that the design should be
-reconsidered.
-
-------------------------------------------------------------------------
-
-# 23. How to Identify a Circular Dependency
-
-Look at the dependency graph.
-
-Example:
+Given:
 
 ``` text
 A → B
@@ -1023,7 +949,7 @@ C → D
 D → A
 ```
 
-Start from `A`:
+Trace from any bean:
 
 ``` text
 A
@@ -1037,245 +963,417 @@ D
 A
 ```
 
-Because you eventually return to `A`, there is a cycle.
+When you return to a previously visited bean, you have found a cycle.
 
-In a real Spring application, the cycle may involve:
+In a large application, inspect:
+
+-   Constructor parameters
+-   `@Autowired` fields
+-   `@Autowired` setters
+-   `@Bean` method parameters
+-   Service-to-service dependencies
+-   Factory/configuration dependencies
+
+------------------------------------------------------------------------
+
+# 29. Common Circular Dependency Patterns
+
+## Pattern 1 --- Service ↔ Service
+
+``` text
+AService ↔ BService
+```
+
+Very common.
+
+------------------------------------------------------------------------
+
+## Pattern 2 --- Service → Handler → Service
+
+``` text
+Service
+   ↓
+Handler
+   ↓
+Service
+```
+
+------------------------------------------------------------------------
+
+## Pattern 3 --- Service → Event Publisher → Service
+
+Can occur when event infrastructure or listeners create an unintended
+reverse dependency.
+
+------------------------------------------------------------------------
+
+## Pattern 4 --- Configuration ↔ Bean
+
+For example, configuration code directly depends on a bean while that
+bean indirectly requires the same configuration path.
+
+------------------------------------------------------------------------
+
+## Pattern 5 --- Three or More Services
+
+``` text
+A → B → C → A
+```
+
+These can be harder to notice because no individual pair appears
+circular.
+
+------------------------------------------------------------------------
+
+# 30. Circular Dependency vs Normal Dependency
+
+### Normal
 
 ``` text
 Controller
-   ↓
-Service A
-   ↓
-Service B
-   ↓
+    ↓
+Service
+    ↓
 Repository
 ```
 
-which is fine.
+This is a one-way dependency chain.
 
-But:
+### Circular
 
 ``` text
 Service A
-   ↓
+    ↓
 Service B
-   ↓
+    ↓
 Service C
-   ↓
+    ↓
 Service A
 ```
 
-is circular.
+This is a cycle.
 
 ------------------------------------------------------------------------
 
-# 24. Common Misconceptions
+# 31. Circular Dependency vs Bidirectional Data Relationship
 
-## Misconception 1
+These are not necessarily the same.
 
-> Spring always creates all beans first and then injects dependencies.
-
-Not exactly.
-
-Spring creates beans while resolving their dependencies through its bean
-creation machinery.
-
-------------------------------------------------------------------------
-
-## Misconception 2
-
-> Setter injection always solves circular dependencies.
-
-No.
-
-Only certain circular dependencies, particularly eligible singleton
-cases, can be resolved.
-
-------------------------------------------------------------------------
-
-## Misconception 3
-
-> `@Lazy` fixes the design.
-
-No.
-
-`@Lazy` can break the immediate creation cycle, but the underlying
-coupling may still exist.
-
-------------------------------------------------------------------------
-
-## Misconception 4
-
-> Circular dependency is a Spring bug.
-
-No.
-
-The dependency cycle usually exists in the application's design.
-
-Spring detects the cycle while creating the beans.
-
-------------------------------------------------------------------------
-
-## Misconception 5
-
-> Early singleton exposure means the bean is fully initialized.
-
-No.
-
-It means an early reference can be made available before complete
-initialization.
-
-------------------------------------------------------------------------
-
-# 25. Complete Mental Model
-
-### Constructor circular dependency
+For example:
 
 ``` text
-A requires B to construct
-        ↓
-B requires A to construct
-        ↓
-Neither can be instantiated
-        ↓
-Circular dependency
-        ↓
-FAIL
+Order → Customer
+Customer → Orders
 ```
 
-### Setter/field circular dependency
+in a domain model does not automatically mean Spring beans have a
+circular dependency.
+
+A circular dependency specifically concerns **component/bean
+dependencies during object creation or wiring**.
+
+For example:
+
+``` text
+OrderService ↔ CustomerService
+```
+
+is a Spring bean dependency cycle.
+
+------------------------------------------------------------------------
+
+# 32. Circular Dependency vs Database Relationship
+
+A database can legitimately have relationships between tables without
+causing Spring bean cycles.
+
+For example:
+
+``` text
+Customer
+   ↓
+Orders
+```
+
+does not mean:
+
+``` text
+CustomerService ↔ OrderService
+```
+
+The two concepts should not be confused.
+
+------------------------------------------------------------------------
+
+# 33. Why Circular Dependencies Are Usually a Design Smell
+
+A circular dependency means:
+
+``` text
+A needs B
+B needs A
+```
+
+This makes the components tightly coupled.
+
+Consequences can include:
+
+-   Harder testing
+-   Harder maintenance
+-   Difficult initialization
+-   More complicated bean lifecycle
+-   Increased coupling
+-   Harder refactoring
+-   Potential proxy/AOP issues
+-   More complicated architecture
+
+Therefore:
+
+> A circular dependency should normally trigger a design review.
+
+------------------------------------------------------------------------
+
+# 34. Best Practices
+
+### Prefer constructor injection
+
+``` java
+@Service
+public class OrderService {
+
+    private final PaymentService paymentService;
+
+    public OrderService(PaymentService paymentService) {
+        this.paymentService = paymentService;
+    }
+}
+```
+
+Constructor injection makes dependencies explicit.
+
+### Avoid using setter injection only to hide a cycle.
+
+### Avoid field injection.
+
+### Keep services focused on one responsibility.
+
+### Prefer one-way dependencies.
+
+### Use events when asynchronous or decoupled communication makes sense.
+
+### Extract shared responsibilities.
+
+### Use `@Lazy` only when it has a legitimate reason.
+
+------------------------------------------------------------------------
+
+# 35. Constructor vs Setter vs Field
+
+Injection     Circular dependency behavior
+  ------------- ------------------------------------------
+Constructor   Generally fails
+Setter        Certain singleton cycles can be resolved
+Field         Certain singleton cycles can be resolved
+`@Lazy`       Can sometimes defer dependency creation
+Redesign      Preferred solution
+
+------------------------------------------------------------------------
+
+# 36. Interview Questions
+
+## Q1. What is circular dependency?
+
+> When two or more beans directly or indirectly depend on each other.
+
+## Q2. Give a simple example.
+
+``` text
+A → B
+B → A
+```
+
+## Q3. Why does constructor injection fail?
+
+> Because A cannot be instantiated without B and B cannot be
+> instantiated without A.
+
+## Q4. Why can setter injection sometimes work?
+
+> Because the bean can be instantiated before its setter dependency is
+> injected, allowing Spring to use an early reference for certain
+> singleton cycles.
+
+## Q5. What is early singleton exposure?
+
+> Making an early reference to a singleton bean available while the bean
+> is still being created.
+
+## Q6. What are the three singleton caches?
+
+``` text
+singletonObjects
+earlySingletonObjects
+singletonFactories
+```
+
+## Q7. What is `singletonObjects`?
+
+> The primary cache containing fully initialized singleton instances.
+
+## Q8. What is `earlySingletonObjects`?
+
+> A cache containing early singleton references.
+
+## Q9. What is `singletonFactories`?
+
+> A cache of factories that can provide early references, including an
+> appropriate reference when proxying is involved.
+
+## Q10. Why is `singletonFactories` important with AOP?
+
+> Because Spring may need to expose a proxy rather than the raw target
+> object.
+
+## Q11. Can `@Lazy` solve circular dependency?
+
+> It can sometimes break the immediate creation cycle by injecting a
+> lazy reference/proxy, but redesign is preferred.
+
+## Q12. Does Spring always allow circular references?
+
+> No. Circular-reference behavior depends on the bean creation scenario
+> and Spring Boot configuration/version.
+
+## Q13. Can prototype beans use early singleton exposure?
+
+> No. The mechanism is specifically for singleton beans.
+
+## Q14. What is the best solution?
+
+> Remove the cycle by redesigning responsibilities and dependencies.
+
+------------------------------------------------------------------------
+
+# 37. Common Interview Trap
+
+### Question
+
+> "If setter injection can resolve circular dependency, why don't we
+> always use setter injection?"
+
+### Answer
+
+Because circular dependency is generally a **design smell**.
+
+Setter injection should not be selected simply to bypass the problem.
+
+Constructor injection is generally preferred because:
+
+``` text
+Dependencies are explicit
+        +
+Can be final
+        +
+Object can be created in a valid state
+        +
+Easier testing
+        +
+Circular dependencies are detected early
+```
+
+------------------------------------------------------------------------
+
+# 38. Most Important Internal Flow to Remember
+
+For a singleton setter cycle:
+
+``` text
+A → B
+↑   ↓
+└───┘
+```
+
+Remember:
 
 ``` text
 Instantiate A
-      ↓
-A object exists
-      ↓
-Expose early reference if needed
-      ↓
+     ↓
+A is being created
+     ↓
+Register early-reference capability
+     ↓
+A needs B
+     ↓
 Instantiate B
-      ↓
+     ↓
 B needs A
-      ↓
-Use early A reference
-      ↓
-Complete B
-      ↓
+     ↓
+Obtain early A reference
+     ↓
+Inject A into B
+     ↓
+Finish B
+     ↓
 Inject B into A
-      ↓
-Complete A
-```
-
-### Best architectural solution
-
-``` text
-A ↔ B
- ↓
-Find why both need each other
- ↓
-Separate responsibilities
- ↓
-Extract common functionality / use event / redesign
- ↓
-A → B
+     ↓
+Finish A
+     ↓
+Store fully initialized A
 ```
 
 ------------------------------------------------------------------------
 
-# 26. Interview Questions to Know
-
-### Q1. What is circular dependency?
-
-> A situation where two or more beans directly or indirectly depend on
-> each other.
-
-### Q2. Why does constructor circular dependency fail?
-
-> Because each bean must have the other bean available before its
-> constructor can execute, so neither bean can be instantiated first.
-
-### Q3. Can Spring resolve setter circular dependencies?
-
-> Spring can resolve certain circular dependencies involving singleton
-> beans and setter/field injection by exposing an early reference.
-
-### Q4. What is early singleton exposure?
-
-> Making an early reference to a singleton bean available while the bean
-> is still being created, primarily to support certain circular
-> dependency scenarios.
-
-### Q5. What are Spring's three singleton caches?
-
-> `singletonObjects`, `earlySingletonObjects`, and `singletonFactories`.
-
-### Q6. What is the purpose of `singletonFactories`?
-
-> It provides a way to obtain an early reference, which is especially
-> important when the appropriate reference may involve an AOP proxy.
-
-### Q7. Does early exposure mean the bean is fully initialized?
-
-> No. The bean is still in the creation/initialization process.
-
-### Q8. Can `@Lazy` solve circular dependency?
-
-> It can sometimes break the immediate creation cycle by injecting a
-> lazy/proxy reference, but redesigning the dependency is preferred.
-
-### Q9. Can prototype beans use the same circular dependency mechanism?
-
-> No. Early singleton exposure is specifically related to singleton
-> beans, and prototype circular dependencies generally cannot be
-> resolved using that mechanism.
-
-### Q10. What is the best way to fix circular dependency?
-
-> Redesign the dependency graph and remove the cycle rather than relying
-> on Spring's circular-reference handling.
-
-------------------------------------------------------------------------
-
-# 27. Quick Revision
+# 39. One-Minute Revision
 
 ``` text
 Circular Dependency
         ↓
 A → B → A
         ↓
-Can be direct or indirect
+Direct or indirect
         ↓
 Constructor injection
         ↓
-Cannot normally resolve
+Generally cannot resolve
         ↓
 Setter/field injection
         ↓
-Some singleton cycles can be resolved
+Some singleton cycles can resolve
+        ↓
+Why?
         ↓
 Early singleton exposure
         ↓
-Spring can provide an early reference
-        ↓
-Three singleton caches
+Three levels
         ↓
 singletonObjects
 earlySingletonObjects
 singletonFactories
         ↓
-@Lazy can sometimes break the cycle
+AOP/proxies make early references more important
+        ↓
+@Lazy can sometimes break creation cycle
+        ↓
+Prototype ≠ singleton early exposure
         ↓
 Best solution
         ↓
-Redesign and remove the cycle
+Redesign dependency graph
 ```
 
-## Key Takeaway
+------------------------------------------------------------------------
 
-> **Circular dependency is a dependency cycle between Spring beans.
-> Constructor injection normally fails because neither bean can be
-> instantiated without the other. Certain singleton setter/field cycles
-> can be resolved through Spring's early singleton exposure mechanism,
-> which uses the singleton caches to provide an early reference.
-> However, circular dependencies generally indicate tight coupling, so
-> the preferred solution is to redesign the dependency graph and remove
-> the cycle.**
+# 40. Final Interview Summary
+
+> **Circular dependency occurs when Spring beans directly or indirectly
+> depend on each other. Constructor-based circular dependencies
+> generally fail because each bean requires the other before either
+> constructor can complete. Certain singleton setter/field circular
+> dependencies can be resolved because Spring can instantiate the
+> objects first and expose an early singleton reference. Spring's
+> singleton registry uses `singletonObjects`, `earlySingletonObjects`,
+> and `singletonFactories` as part of this mechanism. `@Lazy` can
+> sometimes defer dependency creation, and AOP proxies make
+> early-reference handling more important. However, circular
+> dependencies usually indicate tight coupling, so the preferred
+> solution is to redesign the components and remove the cycle.**
