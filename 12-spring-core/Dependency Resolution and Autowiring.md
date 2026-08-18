@@ -4244,3 +4244,337 @@ Know these three distinctions:
 And when multiple implementations exist:
 
 ```text @Inject + @Named @Autowired + @Qualifier @Resource(name = *...*) ```
+
+# Autowire byName and byType in Spring
+
+These are **Spring's XML-based autowiring modes**. They are different from `@Autowired`.
+
+For a 7–8 year experienced developer, the important point is that these are **legacy/older Spring configuration mechanisms**, but they are still relevant for interviews and understanding Spring's evolution.
+
+---
+
+## 1. Autowire byName
+
+With `autowire="byName"`, Spring tries to find a bean whose **bean name matches the property name** in the target class.
+
+### Example
+
+```java
+public class OrderService {
+
+    private PaymentService paymentService;
+
+    public void setPaymentService(PaymentService paymentService) {
+        this.paymentService = paymentService;
+    }
+}
+```
+
+XML configuration:
+
+```xml
+<bean id="paymentService"
+      class="com.example.PaymentService"/>
+
+<bean id="orderService"
+      class="com.example.OrderService"
+      autowire="byName"/>
+```
+
+Here:
+
+```text
+OrderService property
+        ↓
+paymentService
+        ↓
+Spring looks for bean named
+        ↓
+paymentService
+```
+
+Since the bean ID is:
+
+```xml
+id="paymentService"
+```
+
+Spring injects it.
+
+### Important
+
+The **property name** must match the **bean name**.
+
+```java
+private PaymentService paymentService;
+```
+
+↓
+
+```xml
+<bean id="paymentService" ... />
+```
+
+If the bean is instead:
+
+```xml
+<bean id="myPaymentService" ... />
+```
+
+then `byName` will **not** inject it.
+
+---
+
+# 2. Autowire byType
+
+With `autowire="byType"`, Spring looks at the **property's type** and searches for a compatible bean.
+
+### Example
+
+```java
+public class OrderService {
+
+    private PaymentService paymentService;
+
+    public void setPaymentService(PaymentService paymentService) {
+        this.paymentService = paymentService;
+    }
+}
+```
+
+XML:
+
+```xml
+<bean id="stripePayment"
+      class="com.example.StripePaymentService"/>
+
+<bean id="orderService"
+      class="com.example.OrderService"
+      autowire="byType"/>
+```
+
+Suppose:
+
+```java
+public class StripePaymentService implements PaymentService {
+}
+```
+
+Spring sees:
+
+```text
+property type
+     ↓
+PaymentService
+     ↓
+Find bean assignable to PaymentService
+     ↓
+stripePayment
+     ↓
+Inject
+```
+
+The bean name does **not** need to match the property name.
+
+---
+
+# 3. What happens with multiple beans?
+
+This is the important interview scenario.
+
+Suppose:
+
+```xml
+<bean id="stripePayment"
+      class="com.example.StripePaymentService"/>
+
+<bean id="paypalPayment"
+      class="com.example.PaypalPaymentService"/>
+```
+
+Both implement:
+
+```java
+PaymentService
+```
+
+And:
+
+```xml
+<bean id="orderService"
+      class="com.example.OrderService"
+      autowire="byType"/>
+```
+
+Spring finds:
+
+```text
+PaymentService
+   ├── stripePayment
+   └── paypalPayment
+```
+
+There are **multiple matching beans**, so `byType` cannot uniquely determine which bean to inject.
+
+This results in an ambiguity error.
+
+---
+
+# 4. byName vs byType
+
+| Feature                  | byName                                        | byType           |
+| ------------------------ | --------------------------------------------- | ---------------- |
+| Matching based on        | Bean name                                     | Bean type        |
+| Property name important? | Yes                                           | No               |
+| Bean name important?     | Yes                                           | Not for matching |
+| Multiple matching beans  | Usually not an issue if only one name matches | Causes ambiguity |
+| XML configuration        | Yes                                           | Yes              |
+| Modern Spring usage      | Rare                                          | Rare             |
+
+### Simple example
+
+```text
+byName:
+
+property name
+     ↓
+paymentService
+     ↓
+bean name
+     ↓
+paymentService
+```
+
+Whereas:
+
+```text
+byType:
+
+property type
+     ↓
+PaymentService
+     ↓
+find compatible bean
+     ↓
+PaymentService implementation
+```
+
+---
+
+# 5. How Spring actually performs injection
+
+For `byName`, conceptually:
+
+```text
+1. Find writable properties
+2. Get property name
+3. Look for bean with same name
+4. If found → inject bean
+```
+
+For `byType`:
+
+```text
+1. Find writable properties
+2. Get property type
+3. Search for beans compatible with that type
+4. If exactly one → inject
+5. If multiple → ambiguity
+6. If none → property remains uninjected
+```
+
+---
+
+# 6. Important: setter/property based
+
+Traditional XML `byName` and `byType` autowiring work around **properties/setters**.
+
+Example:
+
+```java
+public void setPaymentService(PaymentService paymentService) {
+    this.paymentService = paymentService;
+}
+```
+
+Spring uses the setter/property information to perform this style of autowiring.
+
+This is different from modern:
+
+```java
+@Autowired
+public OrderService(PaymentService paymentService) {
+    this.paymentService = paymentService;
+}
+```
+
+which is **annotation-based constructor injection**.
+
+---
+
+# 7. Don't confuse these with `@Autowired`
+
+This distinction is important for interviews.
+
+### XML autowire byName
+
+```xml
+<bean id="orderService"
+      class="com.example.OrderService"
+      autowire="byName"/>
+```
+
+**Name-based.**
+
+### XML autowire byType
+
+```xml
+<bean id="orderService"
+      class="com.example.OrderService"
+      autowire="byType"/>
+```
+
+**Type-based.**
+
+### Annotation-based
+
+```java
+@Autowired
+private PaymentService paymentService;
+```
+
+`@Autowired` is **primarily type-based**, with additional resolution mechanisms such as `@Qualifier` and `@Primary`.
+
+---
+
+## Interview takeaway
+
+For a 7–8 year developer, remember this:
+
+```text
+Spring XML Autowiring
+│
+├── byName
+│     └── Property name → Bean name
+│
+└── byType
+      └── Property type → Bean type
+```
+
+**`byName` example:**
+
+```text
+paymentService property
+        ↓
+bean named "paymentService"
+```
+
+**`byType` example:**
+
+```text
+PaymentService property
+        ↓
+find compatible PaymentService bean
+```
+
+And in modern Spring Boot development, you will generally use **constructor injection + `@Autowired`/implicit constructor injection**, rather than XML `autowire="byName"` or `autowire="byType"`.
