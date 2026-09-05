@@ -1,0 +1,571 @@
+Jackson Integration in Spring Boot
+
+Jackson is the library Spring Boot commonly uses to convert between Java objects and JSON.
+
+This is called JSON serialization and deserialization.
+
+Java Object  ──serialization──>  JSON
+Java Object  <─deserialization─  JSON
+
+For example:
+
+User user = new User(10, "John");
+
+Jackson can convert it to:
+
+{
+  "id": 10,
+  "name": "John"
+}
+
+And it can convert JSON back into:
+
+User user
+1. Why does Spring Boot need Jackson?
+
+Suppose your controller is:
+
+@RestController
+public class UserController {
+
+    @GetMapping("/users/10")
+    public User getUser() {
+        return new User(10, "John");
+    }
+}
+
+Your Java method returns:
+
+User object
+
+But HTTP clients don't receive a Java object. They receive data such as:
+
+{
+  "id": 10,
+  "name": "John"
+}
+
+So something needs to perform:
+
+User
+ ↓
+JSON
+
+Spring Boot uses Jackson for this by default when Jackson is on the classpath.
+
+2. Jackson's role with HttpMessageConverter
+
+This connects directly to the previous topic.
+
+The important classes are:
+
+@RestController
+      ↓
+Spring MVC
+      ↓
+HttpMessageConverter
+      ↓
+Jackson
+      ↓
+JSON
+
+For JSON, Spring commonly uses:
+
+MappingJackson2HttpMessageConverter
+
+Internally, this converter uses Jackson's:
+
+ObjectMapper
+
+So the relationship is:
+
+MappingJackson2HttpMessageConverter
+              ↓
+         ObjectMapper
+              ↓
+        Jackson library
+Simple distinction
+
+Jackson → JSON processing library
+
+ObjectMapper → Jackson's main API for JSON ↔ Java conversion
+
+MappingJackson2HttpMessageConverter → Spring's bridge between HTTP and Jackson
+
+3. Serialization
+
+Serialization means:
+
+Converting a Java object into JSON.
+
+Example:
+
+User user = new User(10, "John");
+
+Jackson:
+
+User object
+    ↓
+ObjectMapper
+    ↓
+JSON
+
+Result:
+
+{
+  "id": 10,
+  "name": "John"
+}
+
+For example:
+
+ObjectMapper mapper = new ObjectMapper();
+
+String json = mapper.writeValueAsString(user);
+
+writeValueAsString() performs serialization.
+
+4. Deserialization
+
+Deserialization means:
+
+Converting JSON into a Java object.
+
+JSON:
+
+{
+  "id": 10,
+  "name": "John"
+}
+
+Jackson:
+
+JSON
+ ↓
+ObjectMapper
+ ↓
+User object
+
+Example:
+
+ObjectMapper mapper = new ObjectMapper();
+
+User user = mapper.readValue(json, User.class);
+
+readValue() performs deserialization.
+
+5. Jackson with @RequestBody
+
+Consider:
+
+@PostMapping("/users")
+public User createUser(@RequestBody User user) {
+    return user;
+}
+
+Client sends:
+
+POST /users
+Content-Type: application/json
+
+{
+  "id": 10,
+  "name": "John"
+}
+
+The flow is:
+
+HTTP Request
+     ↓
+Content-Type: application/json
+     ↓
+@RequestBody
+     ↓
+HttpMessageConverter
+     ↓
+MappingJackson2HttpMessageConverter
+     ↓
+ObjectMapper
+     ↓
+JSON → User
+     ↓
+Controller
+
+So when you write:
+
+@RequestBody User user
+
+you don't manually convert JSON to User.
+
+Spring + Jackson do it for you.
+
+6. Jackson with @ResponseBody
+
+Now:
+
+@GetMapping("/users/10")
+public User getUser() {
+    return new User(10, "John");
+}
+
+Because you're using:
+
+@RestController
+
+the returned object is written to the HTTP response body.
+
+Flow:
+
+Controller
+    ↓
+User object
+    ↓
+HttpMessageConverter
+    ↓
+ObjectMapper
+    ↓
+User → JSON
+    ↓
+HTTP Response
+
+Response:
+
+200 OK
+Content-Type: application/json
+
+{
+  "id": 10,
+  "name": "John"
+}
+7. Jackson + ResponseEntity
+
+Suppose:
+
+@GetMapping("/users/10")
+public ResponseEntity<User> getUser() {
+
+    User user = new User(10, "John");
+
+    return ResponseEntity.ok(user);
+}
+
+There are two separate responsibilities:
+
+ResponseEntity
+      ↓
+Status + Headers + Body
+
+and:
+
+HttpMessageConverter
+      ↓
+Converts User → JSON
+
+So:
+
+ResponseEntity<User>
+       |
+       +── Status → 200 OK
+       |
+       +── Headers
+       |
+       +── Body → User
+                    ↓
+          Message Converter
+                    ↓
+                ObjectMapper
+                    ↓
+                   JSON
+8. Jackson is automatically configured by Spring Boot
+
+In a typical Spring Boot project, if you have:
+
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+</dependency>
+
+Jackson is normally included as part of the web starter's dependencies.
+
+You generally don't need to create an ObjectMapper yourself for normal REST APIs.
+
+Spring Boot automatically configures it.
+
+Conceptually:
+
+spring-boot-starter-web
+          ↓
+       Jackson
+          ↓
+ ObjectMapper configured
+          ↓
+HttpMessageConverter configured
+          ↓
+@RestController works with JSON
+9. ObjectMapper
+
+ObjectMapper is probably the most important Jackson class to know.
+
+It provides APIs such as:
+
+writeValueAsString()
+
+for serialization:
+
+User → JSON
+
+and:
+
+readValue()
+
+for deserialization:
+
+JSON → User
+
+Example:
+
+ObjectMapper mapper = new ObjectMapper();
+
+String json = mapper.writeValueAsString(user);
+
+User user2 = mapper.readValue(json, User.class);
+10. Jackson annotations
+
+Jackson also provides annotations to customize JSON mapping.
+
+@JsonProperty
+public class User {
+
+    @JsonProperty("user_id")
+    private Long id;
+
+    private String name;
+}
+
+JSON becomes:
+
+{
+  "user_id": 10,
+  "name": "John"
+}
+@JsonIgnore
+public class User {
+
+    private Long id;
+
+    private String name;
+
+    @JsonIgnore
+    private String password;
+}
+
+The password won't normally be included in serialized JSON.
+
+Result:
+
+{
+  "id": 10,
+  "name": "John"
+}
+@JsonInclude
+
+You can control when properties are included.
+
+For example:
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public class User {
+    private Long id;
+    private String name;
+    private String email;
+}
+
+If email == null, it can be omitted from the JSON.
+
+@JsonFormat
+
+Useful for dates:
+
+@JsonFormat(pattern = "yyyy-MM-dd")
+private LocalDate dateOfBirth;
+
+JSON:
+
+{
+  "dateOfBirth": "1998-03-28"
+}
+11. What happens if JSON doesn't match the Java object?
+
+Suppose your Java class expects:
+
+private Integer age;
+
+but the client sends:
+
+{
+  "age": "hello"
+}
+
+Jackson may fail to deserialize the request.
+
+This can eventually result in an HTTP error such as:
+
+400 Bad Request
+
+because Spring cannot construct the required Java object from the request body.
+
+12. Jackson and unknown properties
+
+Suppose your Java class is:
+
+public class User {
+    private Long id;
+    private String name;
+}
+
+But the client sends:
+
+{
+  "id": 10,
+  "name": "John",
+  "salary": 50000
+}
+
+The JSON contains a property that isn't present in User.
+
+Jackson's behavior for unknown properties can be configured.
+
+You can use:
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class User {
+    private Long id;
+    private String name;
+}
+
+Now Jackson can ignore salary.
+
+13. Customizing Jackson in Spring Boot
+
+You can customize Jackson globally.
+
+For example, using configuration properties:
+
+spring.jackson.default-property-inclusion=non_null
+
+Or you can customize the ObjectMapper using Spring configuration.
+
+For example:
+
+@Bean
+public ObjectMapper objectMapper() {
+    ObjectMapper mapper = new ObjectMapper();
+    return mapper;
+}
+
+However, in real applications, you should be careful about replacing Spring Boot's automatically configured ObjectMapper; often it's better to customize the existing configuration rather than unnecessarily creating a completely separate mapper.
+
+14. Complete picture
+
+This is the architecture you should remember for interviews:
+
+                    CLIENT
+                      |
+                      |
+                HTTP Request
+                      |
+             Content-Type: JSON
+                      |
+                      ↓
+              DispatcherServlet
+                      |
+                      ↓
+        RequestMappingHandlerAdapter
+                      |
+                      ↓
+              @RequestBody
+                      |
+                      ↓
+             HttpMessageConverter
+                      |
+                      ↓
+   MappingJackson2HttpMessageConverter
+                      |
+                      ↓
+                 ObjectMapper
+                      |
+                      ↓
+                JSON → Java
+                      |
+                      ↓
+                Controller
+                      |
+                      ↓
+                 Java Object
+                      |
+                      ↓
+             HttpMessageConverter
+                      |
+                      ↓
+                 ObjectMapper
+                      |
+                      ↓
+                Java → JSON
+                      |
+                      ↓
+                HTTP Response
+The interview-level summary
+
+Remember these 5 layers:
+
+1. REST Controller
+       ↓
+2. HttpMessageConverter
+       ↓
+3. MappingJackson2HttpMessageConverter
+       ↓
+4. ObjectMapper
+       ↓
+5. Jackson
+
+And the two directions:
+
+Request:
+JSON → Jackson → Java Object
+
+Response:
+Java Object → Jackson → JSON
+Most important distinction
+
+Jackson is responsible for JSON serialization/deserialization. HttpMessageConverter integrates that JSON processing with Spring MVC's HTTP request/response handling. ObjectMapper is Jackson's primary API for performing the actual JSON ↔ Java conversion.
+
+create .md file
+
+Data analysis isn't available right now. Do you want to continue without it? 
+
+I need to copy above info how to do it?
+
+Yes. Since you want to copy the Jackson Integration notes, the easiest options are:
+
+Option 1 — Copy the whole answer
+Move your mouse to the beginning of the Jackson notes.
+Drag/select the text you want.
+Press Ctrl + C.
+Paste it wherever you want with Ctrl + V.
+Option 2 — Copy just the Markdown
+
+If you want to save it as a .md file yourself:
+
+Open Notepad or VS Code.
+Copy the content from my previous answer.
+Paste it.
+Save as:
+jackson-integration-spring-boot.md
+
+In Notepad, choose Save as type → All Files and Encoding → UTF-8.
+
+Option 3 — I can create the .md file
+
+I can also generate the actual downloadable .md file for you, containing the complete Jackson Integration notes.
+
+The file-generation tool was temporarily unavailable on the previous request, so I couldn't create the download then.
