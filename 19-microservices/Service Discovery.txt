@@ -1,0 +1,2658 @@
+Heartbeats in Microservices
+
+A heartbeat is a periodic signal sent by a service instance to the Service Registry to tell it:
+
+"I am still alive and running."
+
+It is commonly used with service registration and service discovery.
+
+1. Why are heartbeats required?
+
+Imagine Payment Service registers itself:
+
+Payment Service
+      |
+      | Register
+      ↓
+Service Registry
+
+PAYMENT-SERVICE
+→ 10.0.0.5:8080
+
+Later, the Payment Service crashes.
+
+Payment Service ❌
+
+But if the registry still has:
+
+PAYMENT-SERVICE
+→ 10.0.0.5:8080
+
+another service might try to call that dead instance.
+
+Heartbeats help the registry detect this.
+
+2. How heartbeat works
+
+After registration:
+
+Payment Service
+      |
+      | "I'm alive"
+      ↓
+Service Registry
+
+After some time:
+
+Payment Service
+      |
+      | "I'm still alive"
+      ↓
+Service Registry
+
+And again:
+
+Payment Service
+      |
+      | "I'm still alive"
+      ↓
+Service Registry
+
+This happens periodically.
+
+For example, conceptually:
+
+Time
+ │
+ ├── 0 sec  → Register
+ ├── 30 sec → Heartbeat
+ ├── 60 sec → Heartbeat
+ ├── 90 sec → Heartbeat
+ └──120 sec → Heartbeat
+
+The exact interval depends on the technology/configuration.
+
+3. What happens when heartbeat stops?
+
+Suppose:
+
+Payment Service
+      |
+      | Heartbeat ✅
+      ↓
+Registry
+
+Then the service crashes:
+
+Payment Service ❌
+
+No more heartbeats:
+
+30 sec → ❌
+60 sec → ❌
+90 sec → ❌
+
+The registry notices that the expected heartbeat has not arrived within its configured timeout.
+
+It can then mark/remove that instance from the available instances.
+
+Before:
+
+PAYMENT-SERVICE
+ ├── 10.0.0.5:8080
+ ├── 10.0.0.8:8080
+ └── 10.0.0.12:8080
+
+
+After Payment-1 becomes unavailable:
+
+PAYMENT-SERVICE
+ ├── 10.0.0.8:8080
+ └── 10.0.0.12:8080
+
+Now other services won't normally select the dead instance.
+
+4. Heartbeat is not the same as health check
+
+This is an important interview distinction.
+
+Heartbeat
+
+The service tells the registry:
+
+"I am alive."
+Service ─────────→ Registry
+          heartbeat
+Health check
+
+The registry/load balancer/orchestrator checks the service:
+
+Registry/Load Balancer
+          |
+          | "Are you healthy?"
+          ↓
+       Service
+          |
+          ↓
+        UP/DOWN
+
+So:
+
+Heartbeat = service pushes an "I'm alive" signal.
+
+Health check = infrastructure actively checks the service.
+
+Depending on the technology, the terms and mechanisms can overlap, so don't assume every platform uses both independently.
+
+5. Heartbeat in Service Discovery
+
+The complete lifecycle can be:
+
+        Service starts
+             ↓
+       Service Registration
+             ↓
+       Registry stores it
+             ↓
+          Heartbeats
+             ↓
+     Instance remains available
+             ↓
+      Service crashes/stops
+             ↓
+       Heartbeats stop
+             ↓
+   Registry detects timeout
+             ↓
+ Instance marked unavailable
+6. Example with 3 instances
+
+Initially:
+
+PAYMENT-SERVICE
+
+Payment-1 → 10.0.0.5:8080  ✅
+Payment-2 → 10.0.0.8:8080  ✅
+Payment-3 → 10.0.0.12:8080 ✅
+
+Each instance sends heartbeats:
+
+P1 → Registry ❤️
+P2 → Registry ❤️
+P3 → Registry ❤️
+
+Now P2 crashes:
+
+P1 → Registry ❤️
+P2 → ❌
+P3 → Registry ❤️
+
+After the configured timeout:
+
+PAYMENT-SERVICE
+
+Payment-1 → 10.0.0.5:8080  ✅
+Payment-2 → removed/unavailable ❌
+Payment-3 → 10.0.0.12:8080  ✅
+
+A client can now use P1 or P3.
+
+7. Heartbeat and service lookup together
+
+Suppose Order Service performs a lookup:
+
+Order Service
+      |
+      | Lookup PAYMENT-SERVICE
+      ↓
+Service Registry
+
+The registry should ideally return currently available instances:
+
+Payment-1 → ✅
+Payment-3 → ✅
+
+rather than:
+
+Payment-2 → ❌
+
+Heartbeats help maintain the registry's knowledge of instance availability.
+
+8. What if the network temporarily fails?
+
+This is where things become more interesting.
+
+Suppose Payment Service is actually running:
+
+Payment Service → RUNNING ✅
+
+but its network connection to the registry is broken:
+
+Payment Service ──X── Registry
+
+The registry stops receiving heartbeats.
+
+From the registry's perspective, the instance may become unavailable after the configured timeout.
+
+This is why heartbeat-based systems have to deal with temporary network failures and false failure detection.
+
+9. Heartbeat vs registration
+
+Don't confuse these:
+
+Registration
+
+Happens when the service joins the registry:
+
+Service → Registry
+"I am PAYMENT-SERVICE at 10.0.0.5:8080."
+Heartbeat
+
+Happens periodically afterward:
+
+Service → Registry
+"I'm still alive."
+
+So:
+
+Registration = "Here I am."
+
+Heartbeat = "I'm still here."
+10. Heartbeat vs health check vs service lookup
+
+You should be able to explain all three:
+
+Registration
+    ↓
+"I am here."
+
+Heartbeat
+    ↓
+"I'm still alive."
+
+Health Check
+    ↓
+"Are you healthy?"
+
+Service Lookup
+    ↓
+"Where is that service?"
+⭐ Interview answer
+
+A heartbeat is a periodic signal sent by a service instance to a service registry to indicate that the instance is still alive. If the registry stops receiving heartbeats within a configured timeout, it can consider the instance unavailable and prevent it from being returned for service discovery or used for traffic routing.
+
+One-line memory trick
+
+Registration → "I am here"
+Heartbeat → "I am still here"
+Lookup → "Where is it?"
+Health check → "Is it healthy?"
+
+Today 11:34 AM
+why do we need service registry?cannot we identify instances using domain/protocol
+
+Yes — you can identify a service using a domain name, and in many modern systems you don't need a traditional service registry such as Eureka.
+
+The important distinction is:
+
+A domain name can identify a service, but something still needs to map that name to the currently available service instances.
+
+That "something" may be DNS, a service registry, Kubernetes, a load balancer, or a service mesh.
+
+1. Your idea is correct
+
+Suppose you have:
+
+Payment Service
+
+10.0.0.5:8080
+10.0.0.8:8080
+10.0.0.12:8080
+
+Instead of using:
+
+http://10.0.0.5:8080
+
+you could use:
+
+http://payment-service.company.com
+
+That's perfectly valid.
+
+But now the question becomes:
+
+How does payment-service.company.com know that Payment Service is running on 10.0.0.5, 10.0.0.8, and 10.0.0.12?
+
+You still need some mechanism to resolve the name.
+
+2. Domain name itself doesn't discover instances
+
+Think of this:
+
+Order Service
+     |
+     ↓
+payment-service.company.com
+
+The domain is just a logical name.
+
+Something has to resolve it:
+
+payment-service.company.com
+          ↓
+       DNS / Router
+          ↓
+10.0.0.5
+10.0.0.8
+10.0.0.12
+
+Then traffic can be distributed among those instances.
+
+So the real architecture becomes:
+
+Order
+  ↓
+Domain name
+  ↓
+DNS / Load Balancer / Service Discovery
+  ↓
+Payment instances
+3. DNS can actually perform service discovery
+
+This is an important point.
+
+You can use DNS-based service discovery:
+
+payment-service.company.com
+             ↓
+           DNS
+             ↓
+      Available addresses
+             ↓
+   ┌─────────┼─────────┐
+   ↓         ↓         ↓
+10.0.0.5  10.0.0.8  10.0.0.12
+
+So:
+
+Service discovery does not necessarily mean Eureka.
+
+Eureka is just one implementation of service discovery.
+
+4. Then why did Eureka become popular?
+
+Because traditional DNS alone doesn't necessarily provide all the service-management capabilities required in a dynamic microservices environment.
+
+For example, imagine:
+
+Payment-1 → 10.0.0.5
+Payment-2 → 10.0.0.8
+Payment-3 → 10.0.0.12
+
+Payment-2 crashes.
+
+A discovery mechanism needs to know:
+
+Payment-2 ❌
+
+and avoid routing traffic there.
+
+A service registry can maintain information such as:
+
+PAYMENT-SERVICE
+
+10.0.0.5:8080 → UP
+10.0.0.8:8080 → DOWN
+10.0.0.12:8080 → UP
+5. Domain + Load Balancer is another solution
+
+You could also have:
+
+Order Service
+     |
+     ↓
+payment.company.com
+     |
+     ↓
+Load Balancer
+     |
+     ├── Payment-1
+     ├── Payment-2
+     └── Payment-3
+
+Here the client doesn't need to know individual instances.
+
+The load balancer handles:
+
+finding instances
+health checking
+selecting an instance
+routing traffic
+
+This is essentially server-side service discovery.
+
+6. Kubernetes is a very good example
+
+Modern Kubernetes applications often work exactly along the lines you're suggesting.
+
+Suppose you have:
+
+payment-service
+
+with:
+
+Pod 1 → 10.0.0.5
+Pod 2 → 10.0.0.8
+Pod 3 → 10.0.0.12
+
+You don't normally make Order Service track those Pod IPs.
+
+Instead:
+
+Order Service
+      |
+      ↓
+payment-service
+      |
+      ↓
+Kubernetes Service
+      |
+   ┌──┼──┐
+   ↓  ↓  ↓
+  P1  P2  P3
+
+Kubernetes provides service discovery through its networking/DNS mechanisms.
+
+So you could say:
+
+Kubernetes Service + DNS is effectively providing service discovery without requiring Eureka.
+
+7. What exactly does a service registry give you?
+
+A service registry is more than simply a domain name.
+
+Conceptually, it maintains dynamic information:
+
+Service
+   ↓
+Instances
+   ↓
+IP
+Port
+Status
+Metadata
+
+For example:
+
+PAYMENT-SERVICE
+
+Instance ID: payment-001
+IP: 10.0.0.5
+Port: 8080
+Status: UP
+
+Instance ID: payment-002
+IP: 10.0.0.8
+Port: 8080
+Status: UP
+
+The registry can be updated as instances:
+
+start
+stop
+restart
+scale
+become unavailable
+8. Domain vs Service Registry
+
+The easiest way to understand it:
+
+Domain/DNS	Service Registry
+Provides a logical name	Maintains service instance information
+Resolves names to addresses	Tracks dynamic instances
+Can provide service discovery	Specifically designed for service registration/discovery
+Often infrastructure-level	Often application/platform-level
+Example: DNS	Example: Eureka
+
+But these categories can overlap in real systems.
+
+9. The key concept
+
+Don't think:
+
+"Microservices require Eureka."
+
+That's not correct.
+
+Think:
+
+"Microservices need a way to locate dynamically changing service instances."
+
+That mechanism could be:
+
+                Service Discovery
+                       |
+        ┌──────────────┼──────────────┐
+        ↓              ↓              ↓
+       DNS          Eureka       Kubernetes
+                                      Service
+
+You choose the mechanism based on your infrastructure.
+
+10. Why can't we simply hardcode the domain?
+
+Suppose:
+
+payment.company.com
+
+always points to:
+
+10.0.0.5
+
+Payment-1 crashes.
+
+Now:
+
+payment.company.com
+        ↓
+10.0.0.5 ❌
+
+The domain name itself didn't solve the problem.
+
+You need something that can dynamically update the mapping:
+
+payment.company.com
+        ↓
+10.0.0.8
+10.0.0.12
+
+That's the fundamental problem service discovery solves.
+
+⭐ Best interview explanation
+
+If an interviewer asks:
+
+"Why do we need a service registry? Can't we use a domain name?"
+
+You can answer:
+
+Yes, we can use a domain name. In fact, DNS-based service discovery is commonly used. However, the domain name itself doesn't know which dynamic service instances are currently available. Some mechanism such as DNS, a load balancer, Kubernetes, or a service registry must maintain or resolve the mapping between the logical service name and its available instances. Eureka is one implementation of service discovery, not a mandatory requirement.
+
+Remember this:
+Service name
+     ↓
+"Where is Payment Service?"
+     ↓
+Discovery mechanism
+     ↓
+Available instances
+     ↓
+Select instance
+     ↓
+Send request
+
+So your intuition is correct: you don't necessarily need Eureka or a traditional registry if your platform already provides service discovery through DNS/Kubernetes/load balancing.
+
+if service registry return 2 instance who decides which one to select?
+
+It depends on which service-discovery model you are using.
+
+1. Client-side discovery
+
+The client decides which instance to call.
+
+Example:
+
+Order Service
+     |
+     | "Give me PAYMENT-SERVICE instances"
+     ↓
+Service Registry
+     |
+     ├── Payment-1 : 10.0.0.1:8080
+     └── Payment-2 : 10.0.0.2:8080
+     |
+     ↓
+Order Service
+     |
+     | selects Payment-2
+     ↓
+Payment-2
+
+The client usually uses a client-side load balancer such as Spring Cloud LoadBalancer.
+
+It may select using strategies such as:
+
+Round Robin
+Random
+Custom selection logic
+
+So:
+
+Registry → returns instances
+Client-side load balancer → selects one
+
+2. Server-side discovery
+
+The load balancer/router decides which instance to select.
+
+Order Service
+     |
+     | request to PAYMENT-SERVICE
+     ↓
+Load Balancer
+     |
+     | discovers/selects
+     ├── Payment-1
+     └── Payment-2
+          ↓
+       Payment-2
+
+The client doesn't receive the list of instances or make the selection itself.
+
+Important distinction
+Model	Who gets instances?	Who selects instance?
+Client-side discovery	Client	Client-side Load Balancer
+Server-side discovery	Load Balancer/Router	Load Balancer/Router
+In Spring Boot + Eureka
+
+If you're using Eureka + Spring Cloud LoadBalancer:
+
+Order Service
+     ↓
+Eureka
+     ↓
+Payment-1
+Payment-2
+     ↓
+Spring Cloud LoadBalancer
+     ↓
+Payment-1
+
+So the Eureka Server does not normally decide which instance handles the request. It provides the available instances; Spring Cloud LoadBalancer selects one.
+
+Interview answer:
+
+"The service registry provides the available service instances. In client-side discovery, the client-side load balancer selects an instance. In server-side discovery, the load balancer or router selects the instance."
+
+Spring Cloud Netflix Eureka
+5
+
+Eureka is a service registry and service-discovery system used in microservices.
+
+In a microservices application, services need to find each other without hardcoding IP addresses and ports.
+
+1. The problem Eureka solves
+
+Suppose you have:
+
+Order Service
+     |
+     | needs Payment Service
+     ↓
+http://192.168.1.25:8082
+
+This is problematic because the Payment Service might:
+
+restart
+get a different IP
+run multiple instances
+move to another server/container
+
+Instead of hardcoding:
+
+192.168.1.25:8082
+
+Order Service can ask Eureka:
+
+"Where is PAYMENT-SERVICE?"
+
+Eureka responds with available instances:
+
+PAYMENT-SERVICE
+ ├── 10.0.1.10:8081
+ ├── 10.0.1.11:8081
+ └── 10.0.1.12:8081
+2. Eureka Architecture
+
+There are two main components:
+
+Eureka Server
+
+Acts as the service registry.
+
+             Eureka Server
+           Service Registry
+          /       |        \
+         /        |         \
+   Order       Payment     User
+   Service     Service     Service
+
+It maintains information such as:
+
+Service Name
+Instance ID
+IP Address
+Port
+Status
+Health information
+Eureka Client
+
+A microservice that:
+
+Registers itself with Eureka
+Sends heartbeats
+Retrieves information about other services
+
+For example:
+
+Payment Service
+      |
+      | REGISTER
+      ↓
+Eureka Server
+
+and:
+
+Order Service
+      |
+      | LOOKUP: PAYMENT-SERVICE
+      ↓
+Eureka Server
+3. Eureka Service Registration
+
+When a service starts:
+
+Payment Service
+       |
+       | Register
+       ↓
+Eureka Server
+
+It tells Eureka something like:
+
+Service: PAYMENT-SERVICE
+Host: 10.0.1.20
+Port: 8082
+Status: UP
+
+Eureka stores this information in its registry.
+
+So other services don't need to know Payment Service's IP beforehand.
+
+4. Service Discovery
+
+Suppose Order Service wants to call Payment Service.
+
+Instead of:
+
+Order Service
+     |
+     ↓
+192.168.1.20:8082
+
+it uses the service name:
+
+Order Service
+     |
+     ↓
+PAYMENT-SERVICE
+     |
+     ↓
+Eureka
+     |
+     ↓
+10.0.1.20:8082
+
+This is service discovery.
+
+5. Heartbeats
+
+Eureka clients periodically send heartbeats to Eureka.
+
+Conceptually:
+
+Payment Service
+      |
+      | "I'm alive"
+      | heartbeat
+      ↓
+Eureka Server
+
+If Eureka stops receiving heartbeats from an instance for the configured period, it can eventually remove that instance from the registry.
+
+This prevents traffic from being sent to an instance that is no longer available.
+
+6. Multiple instances
+
+One major benefit is supporting multiple instances.
+
+             Eureka
+                |
+       ┌────────┼────────┐
+       ↓        ↓        ↓
+ Payment-1  Payment-2  Payment-3
+
+Order Service discovers all available instances:
+
+PAYMENT-SERVICE
+
+10.0.1.10:8080
+10.0.1.11:8080
+10.0.1.12:8080
+
+A client-side load-balancing mechanism can then select an instance.
+
+For example:
+
+Request 1 → Payment-1
+Request 2 → Payment-2
+Request 3 → Payment-3
+7. Eureka Server vs Eureka Client
+Component	Responsibility
+Eureka Server	Maintains service registry
+Eureka Client	Registers service
+Eureka Client	Sends heartbeats
+Eureka Client	Discovers other services
+Client-side load balancer	Selects an instance
+
+A single application can therefore be both:
+
+Eureka Client
+     ↓
+register itself
+
+AND
+
+Eureka Client
+     ↓
+discover other services
+8. Typical Spring Boot architecture
+                   Eureka Server
+                 Service Registry
+                 /      |       \
+                /       |        \
+               ↓        ↓         ↓
+          Order       Payment    User
+          Service     Service    Service
+             |           |
+             └─────┬─────┘
+                   ↓
+              Service calls
+
+All three applications can register themselves with Eureka.
+
+For example:
+
+ORDER-SERVICE
+PAYMENT-SERVICE
+USER-SERVICE
+
+Then Order Service can discover:
+
+PAYMENT-SERVICE
+
+without knowing its physical network location.
+
+9. Important Eureka concepts for interviews
+
+For a 5–8 year Java/Spring Boot developer, understand these properly:
+
+Must know
+Eureka Server
+Eureka Client
+Service registration
+Service discovery
+Heartbeats / lease renewal
+Service instance
+Multiple instances
+Instance metadata
+Client-side discovery
+Client-side load balancing
+Eureka registry
+Instance expiration
+Eureka self-preservation
+Eureka Server replication / peer awareness
+What happens when Eureka is unavailable
+Eureka with Spring Cloud LoadBalancer
+Service name vs physical host/port
+Know at a conceptual level
+Service starts
+      ↓
+Registers with Eureka
+      ↓
+Sends heartbeats
+      ↓
+Eureka maintains registry
+      ↓
+Another service asks for service instances
+      ↓
+Gets available instances
+      ↓
+Load balancer selects an instance
+      ↓
+Request is sent
+One important distinction
+
+Eureka itself is primarily the service registry/discovery mechanism.
+
+It is not the same thing as an API Gateway or a load balancer:
+
+Eureka       → Where is the service?
+LoadBalancer → Which instance should I use?
+Gateway      → How should external requests enter the system?
+
+This distinction is very important in microservices interviews.
+
+Today 7:30 AM
+Self-preservation mode  
+Eureka Self-Preservation Mode
+
+Self-preservation mode is a safety mechanism in Eureka Server that prevents Eureka from aggressively removing service instances when it suspects that many instances have stopped sending heartbeats.
+
+Why is it needed?
+
+Imagine Eureka has 100 registered instances:
+
+Eureka
+  |
+  ├── Service A
+  ├── Service B
+  ├── Service C
+  ├── ...
+  └── Service Z
+
+Normally, every Eureka client sends periodic heartbeats.
+
+Service A ── heartbeat ──→ Eureka
+Service B ── heartbeat ──→ Eureka
+Service C ── heartbeat ──→ Eureka
+
+Now suppose there is a network problem between Eureka and many services.
+
+Eureka suddenly stops receiving heartbeats from 70% of the services.
+
+Eureka cannot know whether:
+
+Those services actually crashed, or
+There is a network problem preventing heartbeats from reaching Eureka.
+
+If Eureka immediately removes all those instances, it could make the outage much worse.
+
+What self-preservation does
+
+When Eureka detects that the number of renewals has dropped significantly below the expected level, it enters:
+
+SELF-PRESERVATION MODE
+
+It becomes more conservative about removing instances.
+
+Conceptually:
+
+Expected heartbeats
+        ↓
+      1000
+        |
+        | Network problem
+        ↓
+Received heartbeats
+        ↓
+       300
+        |
+        ↓
+Eureka detects abnormal renewal loss
+        |
+        ↓
+Self-preservation mode
+        |
+        ↓
+Avoid mass eviction
+
+So Eureka essentially says:
+
+"I may be seeing a network problem, so I should not assume that all these services are dead."
+
+Example
+
+Suppose Eureka has:
+
+100 service instances
+
+Normally, all instances continuously renew their leases.
+
+Then a network partition occurs:
+
+             Network problem
+                   ↓
+Eureka  X X X X X X X  Services
+
+Eureka receives far fewer heartbeats.
+
+Without self-preservation:
+
+No heartbeat
+     ↓
+Remove instance
+     ↓
+Many instances removed
+     ↓
+Other services cannot discover them
+
+With self-preservation:
+
+No heartbeat
+     ↓
+Could be network problem
+     ↓
+Self-preservation
+     ↓
+Avoid mass eviction
+Important interview point
+
+Self-preservation does NOT mean Eureka knows that the services are healthy.
+
+It means Eureka temporarily avoids assuming that missing heartbeats mean the instances are dead.
+
+That's the key idea.
+
+What happens to stale instances?
+
+This is the trade-off.
+
+If an instance has actually crashed but Eureka enters self-preservation mode, the stale instance may remain in the registry longer than desired.
+
+Therefore:
+
+Self-preservation
+       ↓
+Protects against mass eviction
+       ↓
+But may temporarily retain stale instances
+One-line interview answer
+
+Eureka self-preservation mode is a safety mechanism that prevents mass eviction of service instances when Eureka detects an unusually large drop in heartbeats, because the cause could be a network failure rather than actual service failures.
+
+Remember this flow
+Client registers
+      ↓
+Heartbeat / lease renewal
+      ↓
+Eureka monitors renewals
+      ↓
+Abnormally low renewals
+      ↓
+Self-preservation mode
+      ↓
+Avoid mass eviction
+
+For your Eureka preparation, the next closely related topic is Eureka lease renewal and eviction, because self-preservation is based directly on the heartbeat/renewal mechanism.
+
+Today 9:32 AM
+Eureka with Spring Cloud LoadBalancer
+Service name vs physical host/port
+1. Eureka with Spring Cloud LoadBalancer
+
+These two components solve different problems:
+
+Eureka
+   ↓
+"Which instances of PAYMENT-SERVICE exist?"
+
+Spring Cloud LoadBalancer
+   ↓
+"Which PAYMENT-SERVICE instance should I call?"
+Example
+
+Suppose Eureka contains:
+
+PAYMENT-SERVICE
+ ├── 10.0.0.10:8081
+ ├── 10.0.0.11:8081
+ └── 10.0.0.12:8081
+
+Order Service wants to call Payment Service.
+
+The flow is:
+
+Order Service
+     |
+     | 1. Ask for PAYMENT-SERVICE
+     ↓
+Eureka
+     |
+     | 2. Return instances
+     ↓
+10.0.0.10:8081
+10.0.0.11:8081
+10.0.0.12:8081
+     |
+     | 3. LoadBalancer selects one
+     ↓
+10.0.0.11:8081
+     |
+     ↓
+Payment Service
+Important distinction
+
+Eureka does not normally decide which instance receives the request.
+
+It provides the available instances.
+
+Spring Cloud LoadBalancer performs the client-side instance selection.
+
+For example:
+
+Eureka
+  ↓
+[Instance 1, Instance 2, Instance 3]
+  ↓
+Spring Cloud LoadBalancer
+  ↓
+Instance 2
+How does the application use it?
+
+Instead of directly writing:
+
+http://10.0.0.11:8081/payments
+
+you can use the service name:
+
+http://PAYMENT-SERVICE/payments
+
+The LoadBalancer resolves PAYMENT-SERVICE through service discovery and chooses an instance.
+
+For example, with RestClient:
+
+RestClient restClient = RestClient.builder()
+        .baseUrl("http://PAYMENT-SERVICE")
+        .build();
+
+The important idea is:
+
+PAYMENT-SERVICE
+       ↓
+Eureka discovery
+       ↓
+Available instances
+       ↓
+Spring Cloud LoadBalancer
+       ↓
+Selected instance
+2. Service Name vs Physical Host/Port
+
+This is a very important microservices concept.
+
+Physical host/port
+
+A physical address identifies a particular instance:
+
+http://10.0.0.11:8081
+
+It contains:
+
+IP address → 10.0.0.11
+Port       → 8081
+
+If that instance changes:
+
+10.0.0.11:8081
+        ↓
+10.0.0.20:8081
+
+your application cannot continue using the old address.
+
+Service name
+
+Instead, use a logical name:
+
+PAYMENT-SERVICE
+
+The service name represents the service, not a particular instance.
+
+For example:
+
+PAYMENT-SERVICE
+       |
+       ├── 10.0.0.10:8081
+       ├── 10.0.0.11:8081
+       └── 10.0.0.12:8081
+
+The caller doesn't need to know which physical machine is running the service.
+
+Why service names are useful
+
+Imagine you initially have:
+
+PAYMENT-SERVICE
+       |
+       └── 10.0.0.10:8081
+
+Later you scale:
+
+PAYMENT-SERVICE
+       |
+       ├── 10.0.0.10:8081
+       ├── 10.0.0.11:8081
+       ├── 10.0.0.12:8081
+       └── 10.0.0.13:8081
+
+The Order Service still calls:
+
+PAYMENT-SERVICE
+
+It doesn't need to change its configuration every time a Payment Service instance is added, removed, or moved.
+
+Complete picture
+                   Eureka Server
+                  Service Registry
+                        |
+             PAYMENT-SERVICE
+             /       |       \
+            /        |        \
+           ↓         ↓         ↓
+      10.0.0.10  10.0.0.11  10.0.0.12
+        :8081       :8081       :8081
+            \        |        /
+             \       |       /
+              ↓      ↓      ↓
+       Spring Cloud LoadBalancer
+                    |
+             selects an instance
+                    |
+                    ↓
+             Payment Service
+In one sentence
+
+Eureka answers "where are the instances?", while Spring Cloud LoadBalancer answers "which instance should I call?", and the service name allows the caller to remain independent of the physical host and port.
+
+For interviews, remember this distinction:
+
+Concept	Purpose
+Service name	Logical identity, e.g. PAYMENT-SERVICE
+Host/port	Physical/network address of one instance
+Eureka	Discovers available instances
+LoadBalancer	Selects an instance
+Microservice caller	Uses logical service name rather than hardcoded instance address
+
+These four concepts together explain how Eureka-based service discovery actually works at runtime.
+
+Let's use this example throughout:
+
+Order Service
+      |
+      ↓
+Payment Service
+      |
+      ├── Payment Instance 1 → 10.0.0.10:8080
+      ├── Payment Instance 2 → 10.0.0.11:8080
+      └── Payment Instance 3 → 10.0.0.12:8080
+1. Client-side Discovery
+
+Client-side discovery means the calling service/client obtains the available instances of the target service and participates in selecting which instance to call.
+
+With Eureka:
+
+             Eureka Server
+           ┌───────────────┐
+           │ Eureka Registry│
+           └───────┬───────┘
+                   ↑
+              discovery
+                   |
+             Order Service
+                   |
+                   ↓
+            Payment Service
+Step-by-step
+
+Suppose Order Service needs Payment Service.
+
+Step 1
+
+Order Service needs:
+
+PAYMENT-SERVICE
+Step 2
+
+The discovery mechanism obtains the available instances:
+
+PAYMENT-SERVICE
+
+10.0.0.10:8080
+10.0.0.11:8080
+10.0.0.12:8080
+Step 3
+
+The client selects an instance.
+
+             Payment instances
+              /      |      \
+             P1      P2      P3
+                      ↑
+                   selected
+Step 4
+
+Order Service directly sends the business request to the selected instance:
+
+Order Service
+      |
+      | HTTP request
+      ↓
+Payment-2
+10.0.0.11:8080
+
+So the key idea is:
+
+The client participates in discovering and selecting the service instance.
+
+2. Client-side Load Balancing
+
+Client-side discovery and client-side load balancing are related, but they are not the same thing.
+
+Discovery answers:
+
+"What instances are available?"
+
+For example:
+
+PAYMENT-SERVICE
+
+P1 → 10.0.0.10
+P2 → 10.0.0.11
+P3 → 10.0.0.12
+Load balancing answers:
+
+"Which available instance should I call?"
+
+For example:
+
+P1
+P2 ← selected
+P3
+
+So:
+
+Service Discovery
+       ↓
+Available instances
+       ↓
+Client-side Load Balancer
+       ↓
+Selected instance
+Example
+
+Suppose three Payment instances are available:
+
+P1
+P2
+P3
+
+Requests could be distributed according to the configured load-balancing strategy:
+
+Request 1 → P1
+Request 2 → P2
+Request 3 → P3
+Request 4 → P1
+
+The exact selection strategy depends on the load-balancing implementation/configuration.
+
+In modern Spring applications, Spring Cloud LoadBalancer can be used for client-side load balancing.
+
+Important distinction
+Eureka
+  ↓
+"Here are the instances."
+
+Load Balancer
+  ↓
+"I'll select one of them."
+
+Eureka itself is not the load balancer.
+
+3. Eureka Registry
+
+The Eureka registry is the collection of information maintained by the Eureka Server about registered service instances.
+
+For example:
+
+Eureka Registry
+│
+├── ORDER-SERVICE
+│    ├── order-1 → 10.0.0.5:8080
+│    └── order-2 → 10.0.0.6:8080
+│
+├── PAYMENT-SERVICE
+│    ├── payment-1 → 10.0.0.10:8080
+│    ├── payment-2 → 10.0.0.11:8080
+│    └── payment-3 → 10.0.0.12:8080
+│
+└── USER-SERVICE
+     └── user-1 → 10.0.0.20:8080
+
+The registry contains information such as:
+
+application/service name
+instance ID
+host/IP
+port
+status
+lease information
+metadata
+How does information get into the registry?
+
+Through service registration:
+
+Payment-1
+    |
+    | REGISTER
+    ↓
+Eureka Server
+    |
+    ↓
+Registry
+
+And the client periodically renews its lease:
+
+Payment-1
+    |
+    | HEARTBEAT
+    ↓
+Eureka Server
+
+So the lifecycle is:
+
+Register
+   ↓
+Renew
+   ↓
+Renew
+   ↓
+Renew
+   ↓
+Expire if renewals stop
+4. Instance Expiration
+
+Instance expiration happens when a registered service instance stops renewing its lease for long enough that Eureka considers the registration expired.
+
+Example:
+
+PAYMENT-SERVICE
+
+P1 → UP
+P2 → UP
+P3 → UP
+
+Suppose P2 crashes:
+
+P1 → heartbeat ✓
+P2 → heartbeat ✗
+P3 → heartbeat ✓
+
+P2 no longer renews its lease.
+
+After the configured expiration period:
+
+P2
+ ↓
+Lease expires
+ ↓
+Eureka removes/expires the instance
+
+Registry becomes:
+
+PAYMENT-SERVICE
+
+P1 → UP
+P3 → UP
+
+Future discovery can therefore return the currently registered instances rather than continuing to treat P2 as an active instance.
+
+How all 4 concepts work together
+
+This is the most important part.
+
+                    Eureka Server
+                   ┌──────────────┐
+                   │    Registry  │
+                   └──────┬───────┘
+                          ↑
+                    Registration
+                          ↑
+              ┌───────────┴───────────┐
+              │                       │
+          Payment-1               Payment-2
+          heartbeat               heartbeat
+              │                       │
+              └───────────┬───────────┘
+                          │
+                          │
+                    Order Service
+                          │
+                   Client-side
+                    Discovery
+                          │
+                          ↓
+                 Available instances
+                          │
+                          ↓
+                Client-side Load
+                   Balancer
+                          │
+                          ↓
+                 Payment instance
+
+If an instance dies:
+
+Payment-2
+    X
+    |
+No heartbeat
+    ↓
+Lease expires
+    ↓
+Eureka Registry
+    ↓
+Payment-2 removed/expired
+
+Then discovery sees:
+
+Payment-1
+Payment-3
+
+instead of:
+
+Payment-1
+Payment-2 ❌
+Payment-3
+The key differences
+Concept	Main question it answers
+Client-side discovery	"Where are the available instances?"
+Client-side load balancing	"Which available instance should I call?"
+Eureka registry	"What service instances are currently registered?"
+Instance expiration	"What happens when an instance stops renewing its lease?"
+Interview-ready flow
+
+A service instance registers with the Eureka registry and periodically renews its lease. A client uses service discovery to obtain available instances of the target service. A client-side load balancer can then select one of those instances and send the request directly to it. If an instance stops renewing its lease and its lease expires, Eureka can remove/expire that instance from the registry.
+
+This gives you the complete Eureka client-side discovery lifecycle.
+
+Eureka Server replication / peer awareness
+What happens when Eureka is unavailable
+1. Eureka Server Replication / Peer Awareness
+
+In production, you generally don't want one Eureka Server to be the only service registry, because that would create a single point of failure.
+
+You can run multiple Eureka Server instances.
+
+             Eureka Server 1
+                   ↕
+             Eureka Server 2
+                   ↕
+             Eureka Server 3
+
+These Eureka servers are called peers.
+
+1.1 Why replication is needed
+
+Suppose you have only:
+
+        Eureka Server
+             |
+       Service Registry
+             |
+     All microservices
+
+If Eureka Server goes down:
+
+        Eureka Server ❌
+             |
+             X
+      Service discovery
+
+The discovery infrastructure becomes unavailable.
+
+With multiple Eureka servers:
+
+       Eureka Server 1
+          ↕       ↕
+          ↕       ↕
+       Eureka Server 2
+          ↕
+       Eureka Server 3
+
+If one server fails:
+
+Eureka 1 → ❌
+Eureka 2 → ✓
+Eureka 3 → ✓
+
+Clients can use the available Eureka servers.
+
+1.2 What is peer awareness?
+
+Peer awareness means Eureka Server instances know about their peer Eureka Servers and communicate/replicate registry information with them.
+
+For example:
+
+Eureka Server A
+      |
+      | peer communication
+      ↓
+Eureka Server B
+
+If a service registers with one Eureka Server:
+
+Payment Service
+      |
+      | register
+      ↓
+Eureka Server A
+
+The registry information can be replicated to its peers.
+
+Conceptually:
+
+Payment Service
+      |
+      ↓
+Eureka A
+      |
+      | replication
+      ↓
+Eureka B
+      |
+      ↓
+Eureka C
+
+Now multiple Eureka servers can have knowledge of the service instance.
+
+1.3 Why is this useful?
+
+Suppose:
+
+PAYMENT-SERVICE
+
+P1 → 10.0.0.10
+P2 → 10.0.0.11
+
+P1 registers with Eureka A.
+
+Because of peer replication, the information can become available across the Eureka cluster.
+
+        Eureka A
+           |
+      replication
+           ↓
+        Eureka B
+           |
+      replication
+           ↓
+        Eureka C
+
+Therefore, the registry isn't dependent on only one Eureka Server instance.
+
+1.4 Eureka clients can know multiple Eureka servers
+
+A client can be configured with multiple Eureka server endpoints.
+
+Conceptually:
+
+Payment Service
+      |
+      ├── Eureka A
+      ├── Eureka B
+      └── Eureka C
+
+If one Eureka server isn't reachable:
+
+Eureka A ❌
+Eureka B ✓
+Eureka C ✓
+
+the client can communicate with an available server.
+
+1.5 Important terminology
+Term	Meaning
+Eureka Server	Maintains service registry
+Peer	Another Eureka Server
+Peer awareness	Eureka servers know and communicate with peers
+Replication	Registry information is propagated between peers
+Eureka cluster	Multiple Eureka servers working together
+2. What happens when Eureka is unavailable?
+
+This is a very important interview question.
+
+The answer depends on when Eureka becomes unavailable.
+
+There are two important scenarios.
+
+Scenario 1 — Eureka unavailable during application startup
+
+Suppose:
+
+Order Service
+      |
+      ↓
+Eureka Server ❌
+
+The Eureka Client may be unable to register/discover services at that moment.
+
+The exact startup behavior depends on configuration and the application's discovery setup.
+
+So you should not simply say "the application always stops."
+
+Instead:
+
+If Eureka is unavailable during startup, the client cannot register with or obtain fresh registry information from Eureka. Whether the application itself starts depends on the client's configuration and how the application handles service discovery.
+
+Scenario 2 — Eureka becomes unavailable after the client has already discovered services
+
+This is more interesting.
+
+Suppose Eureka was working:
+
+Order Service
+      |
+      ↓
+Eureka
+      |
+      ↓
+PAYMENT-SERVICE
+
+P1 → 10.0.0.10
+P2 → 10.0.0.11
+
+The client has already obtained service information.
+
+Now Eureka goes down:
+
+Order Service
+      |
+      X
+      |
+Eureka ❌
+
+The client may still have its previously obtained registry information/cache.
+
+Therefore, service calls do not necessarily stop immediately just because Eureka is unavailable.
+
+Conceptually:
+
+Eureka
+  ❌
+   |
+   X
+   |
+Order Service
+   |
+   ↓
+Previously known Payment instances
+   |
+   ├── P1
+   └── P2
+
+This is one reason service discovery systems are designed with resilience in mind.
+
+2.1 But what if a new instance starts?
+
+Suppose Eureka is unavailable:
+
+Eureka ❌
+
+and a new Payment instance starts:
+
+Payment-3
+
+It may not be able to register successfully with Eureka while the registry is unavailable.
+
+Therefore other services may not immediately discover:
+
+Payment-3
+
+The existing clients may continue using instances they already know about, depending on their cached discovery data and other configuration.
+
+2.2 What if an existing instance dies?
+
+Suppose the client has:
+
+P1 → available
+P2 → available
+
+Eureka then becomes unavailable.
+
+Later P1 crashes:
+
+P1 → ❌
+P2 → ✓
+
+The client may still have P1 in its previously obtained registry information because it cannot currently obtain updated information from Eureka.
+
+Therefore:
+
+Cached information:
+P1 → available
+P2 → available
+
+doesn't necessarily mean P1 is actually alive.
+
+This is one reason you need timeouts, retries, circuit breakers, and other resilience mechanisms in a production microservices architecture.
+
+2.3 Eureka outage does not mean all microservices immediately stop
+
+This is a very important interview point.
+
+A common incorrect answer is:
+
+"If Eureka goes down, all microservices stop communicating."
+
+That's not necessarily true.
+
+A better explanation is:
+
+Eureka unavailable
+       |
+       ↓
+Existing discovery information may still be available
+       |
+       ↓
+Existing service-to-service communication
+may continue
+
+But:
+
+Eureka unavailable
+       |
+       ├── New registrations may fail
+       ├── Fresh discovery information may be unavailable
+       └── Stale instances may remain in local discovery data
+
+So the impact depends on the timing, client behavior, cached registry data, and configuration.
+
+3. Eureka's self-preservation concept
+
+You should also know this at a 7–8 year experience level.
+
+Eureka has a concept called self-preservation.
+
+Imagine a network problem causes many clients to temporarily stop renewing their leases:
+
+Network problem
+      ↓
+Many heartbeats lost
+      ↓
+Eureka sees many missing renewals
+
+If Eureka immediately removed every instance, it could cause a large number of healthy services to disappear from the registry because of a temporary network problem.
+
+Self-preservation is designed to reduce this kind of mass eviction during certain renewal-loss conditions.
+
+Conceptually:
+
+Temporary network problem
+          ↓
+Many renewals missing
+          ↓
+Eureka detects abnormal renewal loss
+          ↓
+Avoid aggressive mass eviction
+
+This is an important resilience feature, but it also means that during certain failures, the registry can temporarily contain stale instances.
+
+4. Complete production picture
+
+A resilient Eureka setup can look like:
+
+                  ┌─────────────┐
+                  │ Eureka A    │
+                  └──────┬──────┘
+                         ↕
+                  ┌─────────────┐
+                  │ Eureka B    │
+                  └──────┬──────┘
+                         ↕
+                  ┌─────────────┐
+                  │ Eureka C    │
+                  └─────────────┘
+                         ↑
+                         |
+                 Service Registry
+                         |
+          ┌──────────────┼──────────────┐
+          ↓              ↓              ↓
+       Order          Payment         User
+       Service        Service        Service
+
+If Eureka A fails:
+
+Eureka A ❌
+
+Eureka B ✓
+Eureka C ✓
+
+Clients can use the remaining Eureka servers.
+
+5. What you should remember
+Eureka replication
+
+Multiple Eureka Servers act as peers and replicate registry information so that service discovery doesn't depend on a single Eureka Server.
+
+Eureka unavailable
+
+If Eureka becomes unavailable after clients have obtained registry information, existing communication may continue using cached discovery data, but new registrations and fresh discovery updates can be affected.
+
+Self-preservation
+
+Eureka can avoid aggressively evicting many instances when it detects an abnormal loss of renewals, helping protect against temporary network failures but potentially allowing stale registrations for some time.
+
+Interview flow to remember
+Service starts
+     ↓
+Register with Eureka
+     ↓
+Eureka registry
+     ↓
+Peer replication
+     ↓
+Client obtains discovery information
+     ↓
+Client-side load balancing
+     ↓
+Service communication
+     ↓
+Heartbeat / lease renewal
+     ↓
+Instance expires if renewals stop
+
+And for Eureka failure:
+
+Eureka unavailable
+       ↓
+Existing cached discovery information
+may still be usable
+       ↓
+Existing calls may continue
+       ↓
+But new registration / fresh discovery
+can be affected
+       ↓
+Multiple Eureka peers improve availability
+
+These are the right level of Eureka internals for a 7–8 year Spring Boot interview; you don't need to go deep into Eureka's internal source-code classes unless the interviewer specifically asks.
+
+Today 3:16 PM
+Eureka caching
+Eureka Caching
+
+Eureka caching means keeping a local copy of service-instance information so that clients and servers don't need to query the network for every request.
+
+There are two important caches to understand for interviews:
+
+1. Eureka Client-side cache
+
+A Eureka Client maintains a local registry cache containing information about available service instances.
+
+Example:
+
+Eureka Server
+     │
+     │ registry
+     ▼
+Order Service
+(local Eureka cache)
+
+PAYMENT-SERVICE
+ ├── 10.0.0.1:8081
+ ├── 10.0.0.2:8081
+ └── 10.0.0.3:8081
+
+Suppose Order Service wants to call Payment Service.
+
+It generally does not ask Eureka for every HTTP request:
+
+Order → Eureka → Payment
+
+Instead:
+
+Order
+  │
+  │ local registry cache
+  ▼
+10.0.0.1:8081
+  │
+  ▼
+Payment Service
+
+This reduces dependency on Eureka and network traffic.
+
+2. Eureka Server-side cache
+
+Eureka Server also has caching around the registry response it provides to clients.
+
+Conceptually:
+
+Eureka Registry
+      ↓
+Response Cache
+      ↓
+Eureka Client
+
+When a client asks:
+
+"Give me all instances of PAYMENT-SERVICE"
+
+Eureka can serve the information from its response cache rather than constructing the response from the registry every time.
+
+What happens when an instance goes down?
+
+Suppose:
+
+PAYMENT-SERVICE
+
+Instance A → 8081
+Instance B → 8082
+Instance C → 8083
+
+Client has cached:
+
+A, B, C
+
+Now Instance B crashes.
+
+The sequence is roughly:
+
+B stops
+ ↓
+No heartbeat
+ ↓
+Eureka lease eventually expires
+ ↓
+Eureka registry changes
+ ↓
+Clients refresh their registry
+ ↓
+Client cache becomes:
+A, C
+
+So cache refresh is not necessarily instantaneous.
+
+For some period, a client may still have stale information.
+
+Why is caching important when Eureka is unavailable?
+
+This connects directly to your previous topic.
+
+If Eureka Server goes down:
+
+             ❌ Eureka
+                │
+                │
+Order Service ──┘
+     │
+     │ local cached registry
+     ▼
+Payment Instance
+
+The client may still know:
+
+PAYMENT-SERVICE
+ ├── 8081
+ └── 8082
+
+Therefore, existing service-to-service communication can often continue using the locally cached registry.
+
+But:
+
+New service registration can fail.
+Registry updates cannot be obtained while Eureka is unavailable.
+A newly started instance may not be discovered.
+A dead instance may remain in the client's cache until the registry is refreshed.
+Interview answer
+
+Eureka caching allows clients to keep a local copy of service-instance information. This reduces dependency on Eureka for every request and provides resilience when Eureka is temporarily unavailable. However, cached information can become stale until the client refreshes its registry.
+
+Files, images, and data analysis are unavailable until usage resets at 4:35 PM. Continue chatting with text only, or upgrade for more access.
+Upgrade to Plus
+
+Today 7:48 AM
+give all the reuired configuration to implement eurek server in springboot
+
+For a Spring Boot + Spring Cloud Eureka setup, you normally need two applications:
+
+Eureka Server — service registry
+Eureka Client — registers itself with Eureka and discovers other services
+
+Below is the configuration you should know for a 7–8 year experienced Java/Spring Boot interview level.
+
+1. Create Eureka Server
+
+Example:
+
+eureka-server
+Dependency
+
+For Maven:
+
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-netflix-eureka-server</artifactId>
+</dependency>
+
+You also need the appropriate Spring Cloud BOM matching your Spring Boot version.
+
+2. Enable Eureka Server
+
+Main class:
+
+@SpringBootApplication
+@EnableEurekaServer
+public class EurekaServerApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(EurekaServerApplication.class, args);
+    }
+}
+
+The important annotation is:
+
+@EnableEurekaServer
+
+It turns this Spring Boot application into a Eureka registry/server.
+
+3. Configure application.yml
+
+For a standalone Eureka server:
+
+server:
+  port: 8761
+
+spring:
+  application:
+    name: eureka-server
+
+eureka:
+  client:
+    register-with-eureka: false
+    fetch-registry: false
+
+  server:
+    enable-self-preservation: true
+
+This is the basic configuration you should remember.
+
+4. Why register-with-eureka: false?
+
+Normally, a Eureka client registers itself with Eureka.
+
+But here:
+
+Eureka Server
+      ↓
+does not need to register itself
+      ↓
+therefore
+register-with-eureka = false
+
+So:
+
+eureka:
+  client:
+    register-with-eureka: false
+
+means:
+
+"Do not register this Eureka server as a service instance."
+
+5. Why fetch-registry: false?
+
+A normal Eureka client downloads the registry:
+
+Eureka Server
+      ↓
+Service registry
+      ↓
+Client downloads registry
+
+But a standalone Eureka server doesn't need to retrieve the registry from another Eureka server.
+
+Therefore:
+
+fetch-registry: false
+
+means:
+
+"Don't fetch the service registry from another Eureka server."
+
+6. Eureka Dashboard
+
+Once the server starts:
+
+http://localhost:8761
+
+You should see the Eureka dashboard.
+
+Conceptually:
+
+                    Eureka Server
+                   :8761
+                       |
+        +--------------+--------------+
+        |              |              |
+     Order Service   User Service   Payment Service
+        |              |              |
+       8081           8082           8083
+
+The services register themselves with Eureka.
+
+7. Create Eureka Client
+
+Suppose you have:
+
+order-service
+
+Add:
+
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+</dependency>
+
+Depending on the Spring Cloud generation/version, the client auto-configuration may be sufficient; @EnableEurekaClient is generally not required with modern Spring Cloud.
+
+8. Client application.yml
+server:
+  port: 8081
+
+spring:
+  application:
+    name: order-service
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+
+Now the flow is:
+
+Order Service
+     |
+     | registration
+     ↓
+Eureka Server
+     |
+     | stores
+     ↓
+ORDER-SERVICE
+localhost:8081
+9. Important Client Configuration
+
+The most important properties are:
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+
+    register-with-eureka: true
+
+    fetch-registry: true
+
+These are normally the defaults for a Eureka client, but explicitly writing them is useful for understanding.
+
+register-with-eureka
+register-with-eureka: true
+
+Means:
+
+Register this service with Eureka.
+
+fetch-registry
+fetch-registry: true
+
+Means:
+
+Download the registry from Eureka so the application can discover other services.
+
+10. Complete Client Configuration
+
+For learning purposes, you can use:
+
+server:
+  port: 8081
+
+spring:
+  application:
+    name: order-service
+
+eureka:
+  client:
+    register-with-eureka: true
+    fetch-registry: true
+
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+
+  instance:
+    prefer-ip-address: true
+
+prefer-ip-address: true tells Eureka to advertise the instance using its IP address rather than hostname.
+
+11. Multiple Services
+
+Suppose you have:
+
+Eureka Server       : 8761
+
+User Service        : 8081
+Order Service       : 8082
+Payment Service     : 8083
+User Service
+spring:
+  application:
+    name: user-service
+
+server:
+  port: 8081
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+Order Service
+spring:
+  application:
+    name: order-service
+
+server:
+  port: 8082
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+Payment Service
+spring:
+  application:
+    name: payment-service
+
+server:
+  port: 8083
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+
+Eureka will maintain something conceptually like:
+
+Eureka Registry
+
+USER-SERVICE
+ └── 192.168.1.10:8081
+
+ORDER-SERVICE
+ └── 192.168.1.10:8082
+
+PAYMENT-SERVICE
+ └── 192.168.1.10:8083
+12. Heartbeat / Lease Configuration
+
+Eureka clients periodically send heartbeats to tell the server:
+
+"I am still alive."
+
+You can configure:
+
+eureka:
+  instance:
+    lease-renewal-interval-in-seconds: 30
+    lease-expiration-duration-in-seconds: 90
+
+Meaning:
+
+Every 30 seconds
+       ↓
+Client sends heartbeat
+       ↓
+Eureka Server
+
+If no heartbeat for approximately 90 seconds
+       ↓
+Instance can be considered expired
+
+For interview understanding:
+
+lease-renewal-interval-in-seconds → heartbeat frequency
+lease-expiration-duration-in-seconds → how long Eureka waits before expiration
+13. Self-Preservation
+
+Eureka has:
+
+eureka:
+  server:
+    enable-self-preservation: true
+
+Self-preservation protects the registry when Eureka suddenly receives fewer heartbeats than expected.
+
+Conceptually:
+
+Network problem
+      ↓
+Many services appear to stop sending heartbeats
+      ↓
+Eureka suspects network problem
+      ↓
+Self-preservation prevents aggressive eviction
+
+For production, you generally need to understand this rather than simply disabling it.
+
+14. Eureka Server With Two Servers
+
+In production, you generally don't want a single Eureka server.
+
+For example:
+
+             Eureka Server 1
+                  :8761
+                 ↕
+          peer replication
+                 ↕
+             Eureka Server 2
+                  :8762
+Eureka Server 1
+server:
+  port: 8761
+
+spring:
+  application:
+    name: eureka-server
+
+eureka:
+  client:
+    register-with-eureka: true
+    fetch-registry: true
+
+    service-url:
+      defaultZone: http://localhost:8762/eureka/
+Eureka Server 2
+server:
+  port: 8762
+
+spring:
+  application:
+    name: eureka-server
+
+eureka:
+  client:
+    register-with-eureka: true
+    fetch-registry: true
+
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+
+Here they know about each other.
+
+        Eureka Server 1
+             ↕
+       Registry replication
+             ↕
+        Eureka Server 2
+
+This is different from the standalone configuration where:
+
+register-with-eureka: false
+fetch-registry: false
+15. Important Eureka Configuration Summary
+
+For interviews, remember these groups.
+
+Server
+server:
+  port: 8761
+
+spring:
+  application:
+    name: eureka-server
+
+eureka:
+  client:
+    register-with-eureka: false
+    fetch-registry: false
+Client
+spring:
+  application:
+    name: order-service
+
+eureka:
+  client:
+    register-with-eureka: true
+    fetch-registry: true
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+Instance
+eureka:
+  instance:
+    prefer-ip-address: true
+    lease-renewal-interval-in-seconds: 30
+    lease-expiration-duration-in-seconds: 90
+Server behavior
+eureka:
+  server:
+    enable-self-preservation: true
+16. Complete Minimal Project
+Eureka Server
+
+pom.xml
+
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-netflix-eureka-server</artifactId>
+</dependency>
+
+Main class
+
+@SpringBootApplication
+@EnableEurekaServer
+public class EurekaServerApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(EurekaServerApplication.class, args);
+    }
+}
+
+application.yml
+
+server:
+  port: 8761
+
+spring:
+  application:
+    name: eureka-server
+
+eureka:
+  client:
+    register-with-eureka: false
+    fetch-registry: false
+Client
+
+pom.xml
+
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+</dependency>
+
+application.yml
+
+server:
+  port: 8081
+
+spring:
+  application:
+    name: order-service
+
+eureka:
+  client:
+    register-with-eureka: true
+    fetch-registry: true
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+
+  instance:
+    prefer-ip-address: true
+
+That's enough to get a basic Eureka Server + Eureka Client registration working.
+
+What you should learn next
+
+For your microservices interview preparation, the next Eureka topics should be:
+
+Service registration flow
+Service discovery flow
+Heartbeat / lease renewal
+Instance expiration
+Eureka self-preservation
+Eureka Server replication / peer awareness
+What happens when Eureka is unavailable
+Client-side load balancing with Eureka
+Eureka + Spring Cloud LoadBalancer
+Eureka vs Kubernetes service discovery
+Today 3:33 PM
+on which side lease deatisl should be addded?
+
+Lease details are mainly configured on the Eureka Client side, because the client is the one that sends heartbeats and renews its lease.
+
+Eureka Client
+eureka:
+  instance:
+    lease-renewal-interval-in-seconds: 30
+    lease-expiration-duration-in-seconds: 90
+
+Meaning:
+
+Client
+  |
+  | Every 30 sec → heartbeat/renew lease
+  ↓
+Eureka Server
+  |
+  | If heartbeat not received for ~90 sec
+  ↓
+Instance can be expired
+What about Eureka Server?
+
+The server controls the eviction behavior, but you normally don't put the client's lease values there.
+
+eureka:
+  server:
+    enable-self-preservation: true
+
+So remember:
+
+Configuration	Side
+lease-renewal-interval-in-seconds	Client
+lease-expiration-duration-in-seconds	Client
+enable-self-preservation	Server
+
+Interview answer:
+
+Lease renewal and expiration values are configured on the Eureka client because the client is responsible for sending heartbeats and renewing its lease with the Eureka server. The Eureka server uses those lease renewals to determine whether an instance is alive.
